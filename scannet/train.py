@@ -1,29 +1,25 @@
 import argparse
-import math
 from datetime import datetime
-#import h5pyprovider
 import numpy as np
 import tensorflow as tf
 import socket
 import importlib
 import os
 import sys
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-ROOT_DIR = os.path.dirname(os.path.dirname(BASE_DIR))
-sys.path.append(BASE_DIR) # model
-sys.path.append(ROOT_DIR) # provider
+ROOT_DIR = os.path.dirname(BASE_DIR)
 sys.path.append(os.path.join(ROOT_DIR, 'utils'))
+sys.path.append(os.path.join(ROOT_DIR, 'models'))
+
 import provider
 import tf_util
 import pc_util
-sys.path.append(os.path.join(ROOT_DIR, 'unit_test'))
-import unit_test 
-sys.path.append(os.path.join(ROOT_DIR, 'data_prep'))
 import scannet_dataset
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--gpu', type=int, default=0, help='GPU to use [default: GPU 0]')
-parser.add_argument('--model', default='model', help='Model name [default: model]')
+parser.add_argument('--gpu', type=int, default=1, help='GPU to use [default: GPU 1]')
+parser.add_argument('--model', default='pointnet2_sem_seg', help='Model name [default: pointnet2_sem_seg.py]')
 parser.add_argument('--log_dir', default='log', help='Log dir [default: log]')
 parser.add_argument('--num_point', type=int, default=8192, help='Point Number [default: 8192]')
 parser.add_argument('--max_epoch', type=int, default=201, help='Epoch to run [default: 201]')
@@ -50,9 +46,10 @@ DECAY_RATE = FLAGS.decay_rate
 MODEL = importlib.import_module(FLAGS.model) # import network module
 MODEL_FILE = os.path.join(BASE_DIR, FLAGS.model+'.py')
 LOG_DIR = FLAGS.log_dir
-if not os.path.exists(LOG_DIR): os.mkdir(LOG_DIR)
-os.system('cp %s %s' % (MODEL_FILE, LOG_DIR)) # bkp of model def
-os.system('cp train.py %s' % (LOG_DIR)) # bkp of train procedure
+
+if not os.path.exists(LOG_DIR):
+    os.mkdir(LOG_DIR)
+
 LOG_FOUT = open(os.path.join(LOG_DIR, 'log_train.txt'), 'w')
 LOG_FOUT.write(str(FLAGS)+'\n')
 
@@ -102,7 +99,6 @@ def train():
         with tf.device('/gpu:'+str(GPU_INDEX)):
             pointclouds_pl, labels_pl, smpws_pl = MODEL.placeholder_inputs(BATCH_SIZE, NUM_POINT)
             is_training_pl = tf.placeholder(tf.bool, shape=())
-            print is_training_pl
             
             # Note the global_step=batch parameter to minimize. 
             # That tells the optimizer to helpfully increment the 'batch' parameter for you every time it trains.
@@ -113,7 +109,7 @@ def train():
             print "--- Get model and loss"
             # Get model and loss 
             pred, end_points = MODEL.get_model(pointclouds_pl, is_training_pl, NUM_CLASSES, bn_decay=bn_decay)
-            loss = MODEL.get_loss(pred, labels_pl, smpws_pl, end_points)
+            loss = MODEL.get_loss(pred, labels_pl, smpws_pl)
             tf.summary.scalar('loss', loss)
 
             correct = tf.equal(tf.argmax(pred, 2), tf.to_int64(labels_pl))
@@ -229,7 +225,7 @@ def train_one_epoch(sess, ops, train_writer):
         end_idx = (batch_idx+1) * BATCH_SIZE
         batch_data, batch_label, batch_smpw = get_batch_wdp(TRAIN_DATASET, train_idxs, start_idx, end_idx)
         # Augment batched point clouds by rotation
-	aug_data = provider.rotate_point_cloud_z(batch_data)
+	aug_data = provider.rotate_point_cloud(batch_data)
         feed_dict = {ops['pointclouds_pl']: aug_data,
                      ops['labels_pl']: batch_label,
 		     ops['smpws_pl']:batch_smpw,
@@ -279,7 +275,7 @@ def eval_one_epoch(sess, ops, test_writer):
         end_idx = (batch_idx+1) * BATCH_SIZE
         batch_data, batch_label, batch_smpw = get_batch(TEST_DATASET, test_idxs, start_idx, end_idx)
 
-	aug_data = provider.rotate_point_cloud_z(batch_data)
+	aug_data = provider.rotate_point_cloud(batch_data)
 
         feed_dict = {ops['pointclouds_pl']: aug_data,
                      ops['labels_pl']: batch_label,
