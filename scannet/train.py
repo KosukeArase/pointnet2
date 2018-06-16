@@ -29,6 +29,7 @@ parser.add_argument('--momentum', type=float, default=0.9, help='Initial learnin
 parser.add_argument('--optimizer', default='adam', help='adam or momentum [default: adam]')
 parser.add_argument('--decay_step', type=int, default=200000, help='Decay step for lr decay [default: 200000]')
 parser.add_argument('--decay_rate', type=float, default=0.7, help='Decay rate for lr decay [default: 0.7]')
+parser.add_argument('--whole', action='store_true', help='Use whole scan (not virtual scan)')
 FLAGS = parser.parse_args()
 
 EPOCH_CNT = 0
@@ -64,10 +65,17 @@ NUM_CLASSES = 21
 
 # Shapenet official train/test split
 DATA_PATH = os.path.join(ROOT_DIR,'data','scannet_data_pointnet2')
-TRAIN_DATASET = scannet_dataset.ScannetDataset(root=DATA_PATH, npoints=NUM_POINT, split='train')
-TEST_DATASET = scannet_dataset.ScannetDataset(root=DATA_PATH, npoints=NUM_POINT, split='test')
-TEST_DATASET_WHOLE_SCENE = scannet_dataset.ScannetDatasetWholeScene(root=DATA_PATH, npoints=NUM_POINT, split='test')
 
+if FLAGS.whole:
+    print('Use whole scan data')
+    TRAIN_DATASET = scannet_dataset.ScannetDataset(root=DATA_PATH, npoints=NUM_POINT, split='train')
+    TEST_DATASET = scannet_dataset.ScannetDataset(root=DATA_PATH, npoints=NUM_POINT, split='test')
+    TEST_DATASET_WHOLE_SCENE = scannet_dataset.ScannetDatasetWholeScene(root=DATA_PATH, npoints=NUM_POINT, split='test')
+else:
+    print('Use virtual scan data')
+    TRAIN_DATASET = scannet_dataset.ScannetDatasetVirtualScan(root=DATA_PATH, npoints=NUM_POINT, split='train')
+    # TRAIN_DATASET = scannet_dataset.ScannetDatasetVirtualScan(root=DATA_PATH, npoints=NUM_POINT, split='test')
+    TEST_DATASET = scannet_dataset.ScannetDatasetVirtualScan(root=DATA_PATH, npoints=NUM_POINT, split='test')
 
 def log_string(out_str):
     LOG_FOUT.write(out_str+'\n')
@@ -165,7 +173,8 @@ def train():
             train_one_epoch(sess, ops, train_writer)
             if epoch%5==0:
                 acc = eval_one_epoch(sess, ops, test_writer)
-                acc = eval_whole_scene_one_epoch(sess, ops, test_writer)
+                if FLAGS.whole:
+                    acc = eval_whole_scene_one_epoch(sess, ops, test_writer)
             if acc > best_acc:
                 best_acc = acc
                 save_path = saver.save(sess, os.path.join(LOG_DIR, "best_model_epoch_%03d.ckpt"%(epoch)))
