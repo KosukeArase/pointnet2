@@ -274,21 +274,66 @@ class ScannetDatasetVirtualScanArase():
 
         return point_set, semantic_seg, sample_weight
 
-    # def get_batch(root, npoints=8192, split='train', whole=False):
-    #     dataset = tf.data.Dataset.from_tensor_slices((self.scene_points_list, self.semantic_labels_list, self.smpidx)) # dataset
-    #     dataset = dataset.repeat()
-    #     dataset = dataset.shuffle(1000)
-    #     dataset = dataset.map(virtual_scan, num_parallel_calls=num_threads).prefetch(batch_size*3) # augment
-    #     dataset = dataset.batch(batch_size)
-    #     dataset = dataset.shuffle(batch_size*3)
-    #     iterator = tf.data.Iterator.from_structure(dataset.output_types, dataset.output_shapes)
-    #     next_element = iterator.get_next()
-    #     init_op = iterator.make_initializer(dataset)
-
-    #     return next_element, init_op
-
     def __len__(self):
         return len(self.scene_points_list)
+
+    def virtual_scan(self, point_set_ini, semantic_seg_ini, virtual_smpidx):
+        semantic_seg_ini = semantic_seg_ini.astype(np.int32)
+        sample_weight_ini = self.labelweights[semantic_seg_ini]
+
+        while True:
+            is_valid = False
+            for i, ind in enumerate(np.random.choice(8, 8, replace=False)):
+                smpidx = virtual_smpidx[ind][0]
+                if len(smpidx) > (self.npoints/4.):
+                    is_valid = True
+                    break
+            if is_valid:
+                break
+            else:
+                idx = np.random.randint(len(dataset))
+                print('No invalid view! Instead, use data-{}.'.format(idx))
+                point_set_ini = self.scene_points_list[idx]
+                semantic_seg_ini = self.semantic_labels_list[idx].astype(np.int32)
+                sample_weight_ini = self.labelweights[semantic_seg_ini]
+                virtual_smpidx = self.virtual_smpidx[idx]
+
+        point_set = point_set_ini[smpidx,:]
+        semantic_seg = semantic_seg_ini[smpidx]
+        sample_weight = sample_weight_ini[smpidx]
+
+        if len(semantic_seg) < (self.npoints/2.):
+            print('Data {}: Choose {} points from {} visible points from view-{}'.format(index, self.npoints, len(semantic_seg), ind))
+
+        choice = np.random.choice(len(semantic_seg), self.npoints, replace=True)
+        point_set = point_set[choice,:] # Nx3
+        semantic_seg = semantic_seg[choice] # N
+        sample_weight = sample_weight[choice] # N
+
+        xyz = self.scene_points_list[index]
+        camloc = np.mean(xyz,axis=0)
+        camloc[2] = 1.5
+        view_dr = np.array([np.pi/4.*ind, 0])
+        camloc[:2] -= np.array([np.cos(view_dr[0]),np.sin(view_dr[0])])
+        point_set[:, :2] -= camloc[:2]
+
+        r_rotation = self.__get_rotation_matrix(-ind+1)
+        rotated = point_set.dot(r_rotation)
+
+        return point_set, semantic_seg, sample_weight
+
+    def get_batch(num_threads=8, batch_size=32, prefetch=128):
+        dataset = tf.data.Dataset.from_tensor_slices((self.scene_points_list, self.semantic_labels_list, self.virtual_smpidx)) # dataset
+        dataset = dataset.repeat()
+        dataset = dataset.shuffle(500)
+        dataset = dataset.map(self.virtual_scan, num_parallel_calls=num_threads).prefetch(batch_size*prefetch) # augment
+        dataset = dataset.batch(batch_size)
+        dataset = dataset.shuffle(batch_size*prefetch)
+        iterator = tf.data.Iterator.from_structure(dataset.output_types, dataset.output_shapes)
+        batch_op = iterator.get_next()
+        init_op = iterator.make_initializer(dataset)
+
+        return batch_op, init_op
 
 
 if __name__=='__main__':
