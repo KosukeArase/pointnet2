@@ -154,11 +154,6 @@ def train():
         sess.run(init)
         #sess.run(init, {is_training_pl: True})
 
-        train_batch_op, train_init_op = TRAIN_DATASET.get_batch(num_threads=8, batch_size=32, prefetch=128)
-        # test_batch_op, test_init_op = TEST_DATASET.get_batch(num_threads=8, batch_size=32, prefetch=128)
-        sess.run(train_init_op)
-        # sess.run(test_init_op)
-
         ops = {'pointclouds_pl': pointclouds_pl,
                'labels_pl': labels_pl,
                'smpws_pl': smpws_pl,
@@ -175,7 +170,7 @@ def train():
             log_string('**** EPOCH %03d ****' % (epoch))
             sys.stdout.flush()
 
-            train_one_epoch(sess, train_batch_op, ops, train_writer)
+            train_one_epoch(sess, ops, train_writer)
             if epoch%5==0:
                 acc = eval_one_epoch(sess, ops, test_writer)
                 if FLAGS.whole:
@@ -190,26 +185,25 @@ def train():
                 save_path = saver.save(sess, os.path.join(LOG_DIR, "model.ckpt"))
                 log_string("Model saved in file: %s" % save_path)
 
-def get_batch_wdp(sess, train_batch_op):
-    # bsize = end_idx-start_idx
-    # batch_data = np.zeros((bsize, NUM_POINT, 3))
-    # batch_label = np.zeros((bsize, NUM_POINT), dtype=np.int32)
-    # batch_smpw = np.zeros((bsize, NUM_POINT), dtype=np.float32)
-    batch_data, batch_label, batch_smpw = sess.run(train_batch_op)
-    for i, [ps, seg, smpw] in enumerate(zip(batch_data, batch_label, batch_smpw)):
-        # idx = idxs[i+start_idx]
-        # while True:
-        #     try:
-        #         ps,seg,smpw = dataset[idx]
-        #         break
-        #     except:
-        #         print('Data-{} has no valid view.'.format(idx))
-        #         idx = np.random.randint(len(dataset))
-        #         print('Instead, use data-{}.'.format(idx))
+def get_batch_wdp(dataset, idxs, start_idx, end_idx):
+    bsize = end_idx-start_idx
+    batch_data = np.zeros((bsize, NUM_POINT, 3))
+    batch_label = np.zeros((bsize, NUM_POINT), dtype=np.int32)
+    batch_smpw = np.zeros((bsize, NUM_POINT), dtype=np.float32)
+    for i in range(bsize):
+        idx = idxs[i+start_idx]
+        while True:
+            try:
+                ps,seg,smpw = dataset[idx]
+                break
+            except:
+                print('Data-{} has no valid view.'.format(idx))
+                idx = np.random.randint(len(dataset))
+                print('Instead, use data-{}.'.format(idx))
                 
-        # batch_data[i,...] = ps
-        # batch_label[i,:] = seg
-        # batch_smpw[i,:] = smpw
+        batch_data[i,...] = ps
+        batch_label[i,:] = seg
+        batch_smpw[i,:] = smpw
 
         dropout_ratio = np.random.random()*0.875 # 0-0.875
         drop_idx = np.where(np.random.random((ps.shape[0]))<=dropout_ratio)[0]
@@ -239,14 +233,14 @@ def get_batch(dataset, idxs, start_idx, end_idx):
         batch_smpw[i,:] = smpw
     return batch_data, batch_label, batch_smpw
 
-def train_one_epoch(sess, train_batch_op, ops, train_writer):
+def train_one_epoch(sess, ops, train_writer):
     """ ops: dict mapping from string to tf ops """
     is_training = True
     
     # Shuffle train samples
-    # train_idxs = np.arange(0, len(TRAIN_DATASET))
-    # np.random.shuffle(train_idxs)
-    # num_batches = len(TRAIN_DATASET)/BATCH_SIZE
+    train_idxs = np.arange(0, len(TRAIN_DATASET))
+    np.random.shuffle(train_idxs)
+    num_batches = len(TRAIN_DATASET)/BATCH_SIZE
     
     log_string(str(datetime.now()))
 
@@ -254,12 +248,12 @@ def train_one_epoch(sess, train_batch_op, ops, train_writer):
     total_seen = 0
     loss_sum = 0
     for batch_idx in range(num_batches):
-        # start_idx = batch_idx * BATCH_SIZE
-        # end_idx = (batch_idx+1) * BATCH_SIZE
-        batch_data, batch_label, batch_smpw = get_batch_wdp(sess, train_batch_op)#, train_idxs, start_idx, end_idx)
-        # Do NOT augment batched point clouds by rotation
-        # aug_data = provider.rotate_point_cloud(batch_data)
-        feed_dict = {ops['pointclouds_pl']: batch_data,
+        start_idx = batch_idx * BATCH_SIZE
+        end_idx = (batch_idx+1) * BATCH_SIZE
+        batch_data, batch_label, batch_smpw = get_batch_wdp(TRAIN_DATASET, train_idxs, start_idx, end_idx)
+        # Augment batched point clouds by rotation
+        aug_data = provider.rotate_point_cloud(batch_data)
+        feed_dict = {ops['pointclouds_pl']: aug_data,
                      ops['labels_pl']: batch_label,
                      ops['smpws_pl']:batch_smpw,
                      ops['is_training_pl']: is_training,}
