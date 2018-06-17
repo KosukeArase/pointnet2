@@ -187,10 +187,15 @@ class ScannetDatasetVirtualScanArase():
             self.labelweights = 1/np.log(1.2+labelweights)
         elif split=='test':
             self.labelweights = np.ones(21)
+
         if os.path.exists(self.smpidx_filename):
-            self.virtual_smpidx = pickle.load(fp)
+            print('Load indexes for virtual scan.')
+            with open(self.smpidx_filename, 'rb') as fp:
+                self.virtual_smpidx = pickle.load(fp)
         else:
+            print('Start creating indexes for virtual scan.')
             self.virtual_smpidx = self.__create_smpidx()
+            print('End creating indexes for virtual scan.')
 
     def __create_smpidx(self):
         virtual_smpidx = list()
@@ -198,18 +203,17 @@ class ScannetDatasetVirtualScanArase():
             smpidx = list()
             for i in xrange(8):
                 var = scene_util.virtual_scan(point_set,mode=i)
-                if len(smpidx)<300:
+                if len(var)<300:
                     smpidx.append(np.expand_dims([], 0)) # add [] as invalid smpidx
                 else:
                     smpidx.append(np.expand_dims(var, 0)) # 1xpoints
-            virtual_smpidx.append(np.expand_dims(smpidx, 0)) # datax8xpoints
+            virtual_smpidx.append(smpidx) # datax8xpoints
 
-        assert len(virtual_smpidx) == len(scene_points_list)
+        assert len(virtual_smpidx) == len(self.scene_points_list)
         assert len(virtual_smpidx[0]) == 8
 
-        with open(self.smpidx_filename,'rb') as fp:
+        with open(self.smpidx_filename,'wb') as fp:
             pickle.dump(virtual_smpidx, fp)
-            self.semantic_labels_list = pickle.load(fp)
 
         return virtual_smpidx
 
@@ -240,16 +244,18 @@ class ScannetDatasetVirtualScanArase():
 
         assert len(self.virtual_smpidx[index]) == 8
 
-        for ind in np.random.choice(8, 8, replace=False):
-            smpidx = self.virtual_smpidx[index][ind]
-            if smpidx != []:
+        for i, ind in enumerate(np.random.choice(8, 8, replace=False)):
+            smpidx = self.virtual_smpidx[index][ind][0]
+            if len(smpidx) > (self.npoints/4.):
                 break
-
+            if i == 7:
+                raise ValueError('no invalid view for data-{}'.format(index))
         point_set = point_set_ini[smpidx,:]
         semantic_seg = semantic_seg_ini[smpidx]
         sample_weight = sample_weight_ini[smpidx]
 
-        print('Choose {} points from {} visible points'.format(len(semantic_seg), self.npoints))
+        if len(semantic_seg) < (self.npoints/2.):
+            print('Data {}: Choose {} points from {} visible points from view-{}'.format(index, self.npoints, len(semantic_seg), ind))
 
         choice = np.random.choice(len(semantic_seg), self.npoints, replace=True)
         point_set = point_set[choice,:] # Nx3
@@ -263,7 +269,7 @@ class ScannetDatasetVirtualScanArase():
         camloc[:2] -= np.array([np.cos(view_dr[0]),np.sin(view_dr[0])])
         point_set[:, :2] -= camloc[:2]
 
-        r_rotation = self.__get_rotation_matrix(-i+1)
+        r_rotation = self.__get_rotation_matrix(-ind+1)
         rotated = point_set.dot(r_rotation)
 
         return point_set, semantic_seg, sample_weight

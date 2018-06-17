@@ -75,7 +75,6 @@ else:
     print('Use virtual scan data')
     # train_batch, init_op = scannet_dataset.scannet_dataset(root=DATA_PATH, npoints=NUM_POINT, split='train', whole=FLAGS.whole)
     TRAIN_DATASET = scannet_dataset.ScannetDatasetVirtualScanArase(root=DATA_PATH, npoints=NUM_POINT, split='train')
-    # TRAIN_DATASET = scannet_dataset.ScannetDatasetVirtualScan(root=DATA_PATH, npoints=NUM_POINT, split='test')
     TEST_DATASET = scannet_dataset.ScannetDatasetVirtualScanArase(root=DATA_PATH, npoints=NUM_POINT, split='test')
 
 def log_string(out_str):
@@ -192,7 +191,16 @@ def get_batch_wdp(dataset, idxs, start_idx, end_idx):
     batch_label = np.zeros((bsize, NUM_POINT), dtype=np.int32)
     batch_smpw = np.zeros((bsize, NUM_POINT), dtype=np.float32)
     for i in range(bsize):
-        ps,seg,smpw = dataset[idxs[i+start_idx]]
+        idx = idxs[i+start_idx]
+        while True:
+            try:
+                ps,seg,smpw = dataset[idx]
+                break
+            except:
+                print('Data-{} has no valid view.'.format(idx))
+                idx = np.random.randint(len(dataset))
+                print('Instead, use data-{}.'.format(idx))
+                
         batch_data[i,...] = ps
         batch_label[i,:] = seg
         batch_smpw[i,:] = smpw
@@ -210,7 +218,16 @@ def get_batch(dataset, idxs, start_idx, end_idx):
     batch_label = np.zeros((bsize, NUM_POINT), dtype=np.int32)
     batch_smpw = np.zeros((bsize, NUM_POINT), dtype=np.float32)
     for i in range(bsize):
-        ps,seg,smpw = dataset[idxs[i+start_idx]]
+        idx = idxs[i+start_idx]
+        while True:
+            try:
+                ps,seg,smpw = dataset[idx]
+                break
+            except:
+                print('Data-{} has no valid view.'.format(idx))
+                idx = np.random.randint(len(dataset))
+                print('Instead, use data-{}.'.format(idx))
+
         batch_data[i,...] = ps
         batch_label[i,:] = seg
         batch_smpw[i,:] = smpw
