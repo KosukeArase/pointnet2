@@ -73,9 +73,10 @@ if FLAGS.whole:
     TEST_DATASET_WHOLE_SCENE = scannet_dataset.ScannetDatasetWholeScene(root=DATA_PATH, npoints=NUM_POINT, split='test')
 else:
     print('Use virtual scan data')
-    TRAIN_DATASET = scannet_dataset.ScannetDatasetVirtualScan(root=DATA_PATH, npoints=NUM_POINT, split='train')
+    # train_batch, init_op = scannet_dataset.scannet_dataset(root=DATA_PATH, npoints=NUM_POINT, split='train', whole=FLAGS.whole)
+    TRAIN_DATASET = scannet_dataset.ScannetDatasetVirtualScanArase(root=DATA_PATH, npoints=NUM_POINT, split='train')
     # TRAIN_DATASET = scannet_dataset.ScannetDatasetVirtualScan(root=DATA_PATH, npoints=NUM_POINT, split='test')
-    TEST_DATASET = scannet_dataset.ScannetDatasetVirtualScan(root=DATA_PATH, npoints=NUM_POINT, split='test')
+    TEST_DATASET = scannet_dataset.ScannetDatasetVirtualScanArase(root=DATA_PATH, npoints=NUM_POINT, split='test')
 
 def log_string(out_str):
     LOG_FOUT.write(out_str+'\n')

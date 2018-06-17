@@ -166,6 +166,125 @@ class ScannetDatasetVirtualScan():
     def __len__(self):
         return len(self.scene_points_list)
 
+
+class ScannetDatasetVirtualScanArase():
+    def __init__(self, root, npoints=8192, split='train'):
+        self.npoints = npoints
+        self.root = root
+        self.split = split
+        self.data_filename = os.path.join(self.root, 'scannet_%s.pickle'%(split))
+        self.smpidx_filename = os.path.join(self.root, 'scannet_%s_smpidx.pickle'%(split))
+        with open(self.data_filename,'rb') as fp:
+            self.scene_points_list = pickle.load(fp)
+            self.semantic_labels_list = pickle.load(fp)
+        if split=='train':
+            labelweights = np.zeros(21)
+            for seg in self.semantic_labels_list:
+                tmp,_ = np.histogram(seg,range(22))
+                labelweights += tmp
+            labelweights = labelweights.astype(np.float32)
+            labelweights = labelweights/np.sum(labelweights)
+            self.labelweights = 1/np.log(1.2+labelweights)
+        elif split=='test':
+            self.labelweights = np.ones(21)
+        if os.path.exists(self.smpidx_filename):
+            self.virtual_smpidx = pickle.load(fp)
+        else:
+            self.virtual_smpidx = self.__create_smpidx()
+
+    def __create_smpidx(self):
+        virtual_smpidx = list()
+        for point_set in self.scene_points_list:
+            smpidx = list()
+            for i in xrange(8):
+                var = scene_util.virtual_scan(point_set,mode=i)
+                if len(smpidx)<300:
+                    smpidx.append(np.expand_dims([], 0)) # add [] as invalid smpidx
+                else:
+                    smpidx.append(np.expand_dims(var, 0)) # 1xpoints
+            virtual_smpidx.append(np.expand_dims(smpidx, 0)) # datax8xpoints
+
+        assert len(virtual_smpidx) == len(scene_points_list)
+        assert len(virtual_smpidx[0]) == 8
+
+        with open(self.smpidx_filename,'rb') as fp:
+            pickle.dump(virtual_smpidx, fp)
+            self.semantic_labels_list = pickle.load(fp)
+
+        return virtual_smpidx
+
+    def __get_rotation_matrix(self, i):
+        theta = (i-4)*np.pi/4.0    # Rotation about the pole (Z).
+        phi = 0 #phi * 2.0 * np.pi     # For direction of pole deflection.
+        z = 0 # z * 2.0 * deflection    # For magnitude of pole deflection.
+
+        r = np.sqrt(z)
+        V = (
+            np.sin(phi) * r,
+            np.cos(phi) * r,
+            np.sqrt(2.0 - z))
+
+        st = np.sin(theta)
+        ct = np.cos(theta)
+
+        R = np.array(((ct, st, 0), (-st, ct, 0), (0, 0, 1)))
+
+        # Construct the rotation matrix  ( V Transpose(V) - I ) R.
+        M = (np.outer(V, V) - np.eye(3)).dot(R)
+        return M
+
+    def __getitem__(self, index):
+        point_set_ini = self.scene_points_list[index]
+        semantic_seg_ini = self.semantic_labels_list[index].astype(np.int32)
+        sample_weight_ini = self.labelweights[semantic_seg_ini]
+
+        assert len(self.virtual_smpidx[index]) == 8
+
+        for ind in np.random.choice(8, 8, replace=False):
+            smpidx = self.virtual_smpidx[index][ind]
+            if smpidx != []:
+                break
+
+        point_set = point_set_ini[smpidx,:]
+        semantic_seg = semantic_seg_ini[smpidx]
+        sample_weight = sample_weight_ini[smpidx]
+
+        print('Choose {} points from {} visible points'.format(len(semantic_seg), self.npoints))
+
+        choice = np.random.choice(len(semantic_seg), self.npoints, replace=True)
+        point_set = point_set[choice,:] # Nx3
+        semantic_seg = semantic_seg[choice] # N
+        sample_weight = sample_weight[choice] # N
+
+        xyz = self.scene_points_list[index]
+        camloc = np.mean(xyz,axis=0)
+        camloc[2] = 1.5
+        view_dr = np.array([np.pi/4.*ind, 0])
+        camloc[:2] -= np.array([np.cos(view_dr[0]),np.sin(view_dr[0])])
+        point_set[:, :2] -= camloc[:2]
+
+        r_rotation = self.__get_rotation_matrix(-i+1)
+        rotated = point_set.dot(r_rotation)
+
+        return point_set, semantic_seg, sample_weight
+
+    # def get_batch(root, npoints=8192, split='train', whole=False):
+    #     dataset = tf.data.Dataset.from_tensor_slices((self.scene_points_list, self.semantic_labels_list, self.smpidx)) # dataset
+    #     dataset = dataset.repeat()
+    #     dataset = dataset.shuffle(1000)
+    #     dataset = dataset.map(virtual_scan, num_parallel_calls=num_threads).prefetch(batch_size*3) # augment
+    #     dataset = dataset.batch(batch_size)
+    #     dataset = dataset.shuffle(batch_size*3)
+    #     iterator = tf.data.Iterator.from_structure(dataset.output_types, dataset.output_shapes)
+    #     next_element = iterator.get_next()
+    #     init_op = iterator.make_initializer(dataset)
+
+    #     return next_element, init_op
+
+    def __len__(self):
+        return len(self.scene_points_list)
+
+
 if __name__=='__main__':
     d = ScannetDatasetWholeScene(root = './data', split='test', npoints=8192)
     labelweights_vox = np.zeros(21)
