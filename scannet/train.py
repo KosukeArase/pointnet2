@@ -197,9 +197,9 @@ def get_batch_wdp(dataset, idxs, start_idx, end_idx):
                 ps,seg,smpw = dataset[idx]
                 break
             except:
-                print('Data-{} has no valid view.'.format(idx))
+                old_idx = idx
                 idx = np.random.randint(len(dataset))
-                print('Instead, use data-{}.'.format(idx))
+                print('Data-{} has no valid view. Instead, use data-{}.'.format(old_idx, idx))
                 
         batch_data[i,...] = ps
         batch_label[i,:] = seg
