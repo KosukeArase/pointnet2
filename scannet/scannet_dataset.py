@@ -254,9 +254,6 @@ class ScannetDatasetVirtualScanArase():
         semantic_seg = semantic_seg_ini[smpidx]
         sample_weight = sample_weight_ini[smpidx]
 
-        if len(semantic_seg) < (self.npoints/2.):
-            print('Data {}: Choose {} points from {} visible points from view-{}'.format(index, self.npoints, len(semantic_seg), ind))
-
         choice = np.random.choice(len(semantic_seg), self.npoints, replace=True)
         point_set = point_set[choice,:] # Nx3
         semantic_seg = semantic_seg[choice] # N
