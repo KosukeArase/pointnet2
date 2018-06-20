@@ -6,11 +6,11 @@ import pc_util
 import scene_util
 
 class ScannetDataset():
-    def __init__(self, root, npoints=8192, split='train'):
+    def __init__(self, root, npoints=8192, split='train', dataset='scannet'):
         self.npoints = npoints
         self.root = root
         self.split = split
-        self.data_filename = os.path.join(self.root, 'scannet_%s.pickle'%(split))
+        self.data_filename = os.path.join(self.root, '{}_{}.pickle'.format(dataset, split))
         with open(self.data_filename,'rb') as fp:
             self.scene_points_list = pickle.load(fp)
             self.semantic_labels_list = pickle.load(fp)
@@ -62,11 +62,11 @@ class ScannetDataset():
         return len(self.scene_points_list)
 
 class ScannetDatasetWholeScene():
-    def __init__(self, root, npoints=8192, split='train'):
+    def __init__(self, root, npoints=8192, split='train', dataset='scannet'):
         self.npoints = npoints
         self.root = root
         self.split = split
-        self.data_filename = os.path.join(self.root, 'scannet_%s.pickle'%(split))
+        self.data_filename = os.path.join(self.root, '{}_{}.pickle'.format(dataset, split))
         with open(self.data_filename,'rb') as fp:
             self.scene_points_list = pickle.load(fp)
             self.semantic_labels_list = pickle.load(fp)
@@ -120,11 +120,11 @@ class ScannetDatasetWholeScene():
         return len(self.scene_points_list)
 
 class ScannetDatasetVirtualScan():
-    def __init__(self, root, npoints=8192, split='train'):
+    def __init__(self, root, npoints=8192, split='train', dataset='scannet'):
         self.npoints = npoints
         self.root = root
         self.split = split
-        self.data_filename = os.path.join(self.root, 'scannet_%s.pickle'%(split))
+        self.data_filename = os.path.join(self.root, '{}_{}.pickle'.format(dataset, split))
         with open(self.data_filename,'rb') as fp:
             self.scene_points_list = pickle.load(fp)
             self.semantic_labels_list = pickle.load(fp)
@@ -168,12 +168,12 @@ class ScannetDatasetVirtualScan():
 
 
 class ScannetDatasetVirtualScanArase():
-    def __init__(self, root, npoints=8192, split='train'):
+    def __init__(self, root, npoints=8192, split='train', dataset='scannet'):
         self.npoints = npoints
         self.root = root
         self.split = split
-        self.data_filename = os.path.join(self.root, 'scannet_%s.pickle'%(split))
-        self.smpidx_filename = os.path.join(self.root, 'scannet_%s_smpidx.pickle'%(split))
+        self.data_filename = os.path.join(self.root, '{}_{}.pickle'.format(dataset, split))
+        self.smpidx_filename = os.path.join(self.root, '{}_{}_smpidx.pickle'.format(dataset, split))
         with open(self.data_filename,'rb') as fp:
             self.scene_points_list = pickle.load(fp)
             self.semantic_labels_list = pickle.load(fp)

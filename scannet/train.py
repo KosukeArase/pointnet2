@@ -20,6 +20,7 @@ import scannet_dataset
 parser = argparse.ArgumentParser()
 parser.add_argument('--gpu', type=int, default=1, help='GPU to use [default: GPU 1]')
 parser.add_argument('--model', default='pointnet2_sem_seg', help='Model name [default: pointnet2_sem_seg.py]')
+parser.add_argument('--dataset', default='scannet', choices=['scannet', 's3dis'], help='Dataset name [default: scannet.py]')
 parser.add_argument('--log_dir', default='log', help='Log dir [default: log]')
 parser.add_argument('--num_point', type=int, default=8192, help='Point Number [default: 8192]')
 parser.add_argument('--max_epoch', type=int, default=201, help='Epoch to run [default: 201]')
@@ -64,18 +65,18 @@ HOSTNAME = socket.gethostname()
 NUM_CLASSES = 21
 
 # Shapenet official train/test split
-DATA_PATH = os.path.join(ROOT_DIR,'data','scannet_data_pointnet2')
+DATA_PATH = os.path.join(ROOT_DIR,'data','{}_data_pointnet2'.format(FLAGS.dataset))
 
 if FLAGS.whole:
     print('Use whole scan data')
-    TRAIN_DATASET = scannet_dataset.ScannetDataset(root=DATA_PATH, npoints=NUM_POINT, split='train')
-    TEST_DATASET = scannet_dataset.ScannetDataset(root=DATA_PATH, npoints=NUM_POINT, split='test')
-    TEST_DATASET_WHOLE_SCENE = scannet_dataset.ScannetDatasetWholeScene(root=DATA_PATH, npoints=NUM_POINT, split='test')
+    TRAIN_DATASET = scannet_dataset.ScannetDataset(root=DATA_PATH, npoints=NUM_POINT, split='train', dataset=FLAGS.dataset)
+    TEST_DATASET = scannet_dataset.ScannetDataset(root=DATA_PATH, npoints=NUM_POINT, split='test', dataset=FLAGS.dataset)
+    TEST_DATASET_WHOLE_SCENE = scannet_dataset.ScannetDatasetWholeScene(root=DATA_PATH, npoints=NUM_POINT, split='test', dataset=FLAGS.dataset)
 else:
     print('Use virtual scan data')
-    # train_batch, init_op = scannet_dataset.scannet_dataset(root=DATA_PATH, npoints=NUM_POINT, split='train', whole=FLAGS.whole)
-    TRAIN_DATASET = scannet_dataset.ScannetDatasetVirtualScanArase(root=DATA_PATH, npoints=NUM_POINT, split='train')
-    TEST_DATASET = scannet_dataset.ScannetDatasetVirtualScanArase(root=DATA_PATH, npoints=NUM_POINT, split='test')
+    # train_batch, init_op = scannet_dataset.scannet_dataset(root=DATA_PATH, npoints=NUM_POINT, split='train', whole=FLAGS.whole, dataset=FLAGS.dataset)
+    TRAIN_DATASET = scannet_dataset.ScannetDatasetVirtualScanArase(root=DATA_PATH, npoints=NUM_POINT, split='train', dataset=FLAGS.dataset)
+    TEST_DATASET = scannet_dataset.ScannetDatasetVirtualScanArase(root=DATA_PATH, npoints=NUM_POINT, split='test', dataset=FLAGS.dataset)
 
 def log_string(out_str):
     LOG_FOUT.write(out_str+'\n')
