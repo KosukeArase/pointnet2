@@ -6,6 +6,8 @@ import socket
 import importlib
 import os
 import sys
+import itertools
+import random
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(BASE_DIR)
@@ -20,7 +22,7 @@ import scannet_dataset
 parser = argparse.ArgumentParser()
 parser.add_argument('--gpu', type=int, default=1, help='GPU to use [default: GPU 1]')
 parser.add_argument('--model', default='pointnet2_sem_seg', help='Model name [default: pointnet2_sem_seg.py]')
-parser.add_argument('--dataset', default='scannet', choices=['scannet', 's3dis'], help='Dataset name [default: scannet.py]')
+parser.add_argument('--dataset', default='s3dis', choices=['scannet', 's3dis'], help='Dataset name [default: scannet.py]')
 parser.add_argument('--log_dir', default='log', help='Log dir [default: log]')
 parser.add_argument('--num_point', type=int, default=8192, help='Point Number [default: 8192]')
 parser.add_argument('--max_epoch', type=int, default=201, help='Epoch to run [default: 201]')
@@ -75,8 +77,8 @@ if FLAGS.whole:
 else:
     print('Use virtual scan data')
     # train_batch, init_op = scannet_dataset.scannet_dataset(root=DATA_PATH, npoints=NUM_POINT, split='train', whole=FLAGS.whole, dataset=FLAGS.dataset)
-    TRAIN_DATASET = scannet_dataset.ScannetDatasetVirtualScanArase(root=DATA_PATH, npoints=NUM_POINT, split='train', dataset=FLAGS.dataset)
-    TEST_DATASET = scannet_dataset.ScannetDatasetVirtualScanArase(root=DATA_PATH, npoints=NUM_POINT, split='test', dataset=FLAGS.dataset)
+    TRAIN_DATASET = scannet_dataset.ScannetDatasetVirtualScan(root=DATA_PATH, npoints=NUM_POINT, split='train', dataset=FLAGS.dataset)
+    TEST_DATASET = scannet_dataset.ScannetDatasetVirtualScan(root=DATA_PATH, npoints=NUM_POINT, split='test', dataset=FLAGS.dataset)
 
 def log_string(out_str):
     LOG_FOUT.write(out_str+'\n')
@@ -192,15 +194,16 @@ def get_batch_wdp(dataset, idxs, start_idx, end_idx):
     batch_label = np.zeros((bsize, NUM_POINT), dtype=np.int32)
     batch_smpw = np.zeros((bsize, NUM_POINT), dtype=np.float32)
     for i in range(bsize):
-        idx = idxs[i+start_idx]
+        data_idx, view_idx = idxs[i+start_idx]
         while True:
             try:
-                ps,seg,smpw = dataset[idx]
+                ps,seg,smpw = dataset[(data_idx, view_idx)]
                 break
             except:
-                old_idx = idx
-                idx = np.random.randint(len(dataset))
-                print('Data-{} has no valid view. Instead, use data-{}.'.format(old_idx, idx))
+                old_data_idx, old_view_idx = data_idx, view_idx
+                data_idx = np.random.randint(len(dataset))
+                view_idx = np.random.randint(8)
+                print('Data-{} from view-{} is invalid. Instead, use data-{} from view-{}'.format(old_data_idx, old_view_idx, data_idx, view_idx))
                 
         batch_data[i,...] = ps
         batch_label[i,:] = seg
@@ -219,15 +222,16 @@ def get_batch(dataset, idxs, start_idx, end_idx):
     batch_label = np.zeros((bsize, NUM_POINT), dtype=np.int32)
     batch_smpw = np.zeros((bsize, NUM_POINT), dtype=np.float32)
     for i in range(bsize):
-        idx = idxs[i+start_idx]
+        data_idx = idxs[i+start_idx]
+        view_idx = random.randint(0, 7)
         while True:
             try:
-                ps,seg,smpw = dataset[idx]
+                ps,seg,smpw = dataset[(data_idx, view_idx)]
                 break
             except:
-                print('Data-{} has no valid view.'.format(idx))
+                print('Data-{} from view-{} was invalid.'.format(data_idx, view_idx))
                 idx = np.random.randint(len(dataset))
-                print('Instead, use data-{}.'.format(idx))
+                print('Instead, use data-{}.'.format(data_idx))
 
         batch_data[i,...] = ps
         batch_label[i,:] = seg
@@ -239,9 +243,9 @@ def train_one_epoch(sess, ops, train_writer):
     is_training = True
     
     # Shuffle train samples
-    train_idxs = np.arange(0, len(TRAIN_DATASET))
+    train_idxs = list([x for x in itertools.product(range(len(TRAIN_DATASET)), range(8))])
     np.random.shuffle(train_idxs)
-    num_batches = len(TRAIN_DATASET)/BATCH_SIZE
+    num_batches = len(train_idxs)/BATCH_SIZE
     
     log_string(str(datetime.now()))
 

@@ -119,55 +119,8 @@ class ScannetDatasetWholeScene():
     def __len__(self):
         return len(self.scene_points_list)
 
+
 class ScannetDatasetVirtualScan():
-    def __init__(self, root, npoints=8192, split='train', dataset='scannet'):
-        self.npoints = npoints
-        self.root = root
-        self.split = split
-        self.data_filename = os.path.join(self.root, '{}_{}.pickle'.format(dataset, split))
-        with open(self.data_filename,'rb') as fp:
-            self.scene_points_list = pickle.load(fp)
-            self.semantic_labels_list = pickle.load(fp)
-        if split=='train':
-            labelweights = np.zeros(21)
-            for seg in self.semantic_labels_list:
-                tmp,_ = np.histogram(seg,range(22))
-                labelweights += tmp
-            labelweights = labelweights.astype(np.float32)
-            labelweights = labelweights/np.sum(labelweights)
-            self.labelweights = 1/np.log(1.2+labelweights)
-        elif split=='test':
-            self.labelweights = np.ones(21)
-    def __getitem__(self, index):
-        point_set_ini = self.scene_points_list[index]
-        semantic_seg_ini = self.semantic_labels_list[index].astype(np.int32)
-        sample_weight_ini = self.labelweights[semantic_seg_ini]
-        point_sets = list()
-        semantic_segs = list()
-        sample_weights = list()
-        for i in xrange(8):
-            smpidx = scene_util.virtual_scan(point_set_ini,mode=i)
-            if len(smpidx)<300:
-                continue
-            point_set = point_set_ini[smpidx,:]
-            semantic_seg = semantic_seg_ini[smpidx]
-            sample_weight = sample_weight_ini[smpidx]
-            choice = np.random.choice(len(semantic_seg), self.npoints, replace=True)
-            point_set = point_set[choice,:] # Nx3
-            semantic_seg = semantic_seg[choice] # N
-            sample_weight = sample_weight[choice] # N
-            point_sets.append(np.expand_dims(point_set,0)) # 1xNx3
-            semantic_segs.append(np.expand_dims(semantic_seg,0)) # 1xN
-            sample_weights.append(np.expand_dims(sample_weight,0)) # 1xN
-        point_sets = np.concatenate(tuple(point_sets),axis=0)
-        semantic_segs = np.concatenate(tuple(semantic_segs),axis=0)
-        sample_weights = np.concatenate(tuple(sample_weights),axis=0)
-        return point_sets, semantic_segs, sample_weights
-    def __len__(self):
-        return len(self.scene_points_list)
-
-
-class ScannetDatasetVirtualScanArase():
     def __init__(self, root, npoints=8192, split='train', dataset='scannet'):
         self.npoints = npoints
         self.root = root
@@ -203,10 +156,7 @@ class ScannetDatasetVirtualScanArase():
             smpidx = list()
             for i in xrange(8):
                 var = scene_util.virtual_scan(point_set,mode=i)
-                if len(var)<300:
-                    smpidx.append(np.expand_dims([], 0)) # add [] as invalid smpidx
-                else:
-                    smpidx.append(np.expand_dims(var, 0)) # 1xpoints
+                smpidx.append(np.expand_dims(var, 0)) # 1xpoints
             virtual_smpidx.append(smpidx) # datax8xpoints
 
         assert len(virtual_smpidx) == len(self.scene_points_list)
@@ -237,19 +187,18 @@ class ScannetDatasetVirtualScanArase():
         M = (np.outer(V, V) - np.eye(3)).dot(R)
         return M
 
-    def __getitem__(self, index):
-        point_set_ini = self.scene_points_list[index]
-        semantic_seg_ini = self.semantic_labels_list[index].astype(np.int32)
+    def __getitem__(self, inds):
+        data_ind, view_ind = inds
+        point_set_ini = self.scene_points_list[data_ind]
+        semantic_seg_ini = self.semantic_labels_list[data_ind].astype(np.int32)
         sample_weight_ini = self.labelweights[semantic_seg_ini]
 
-        assert len(self.virtual_smpidx[index]) == 8
+        assert len(self.virtual_smpidx[data_ind]) == 8
 
-        for i, ind in enumerate(np.random.choice(8, 8, replace=False)):
-            smpidx = self.virtual_smpidx[index][ind][0]
-            if len(smpidx) > (self.npoints/4.):
-                break
-            if i == 7:
-                raise ValueError('no invalid view for data-{}'.format(index))
+        smpidx = self.virtual_smpidx[data_ind][view_ind][0]
+        if len(smpidx) < (self.npoints/4.):
+            raise ValueError('Data-{} from view-{} is invalid.'.format(data_ind, view_ind))
+
         point_set = point_set_ini[smpidx,:]
         semantic_seg = semantic_seg_ini[smpidx]
         sample_weight = sample_weight_ini[smpidx]
@@ -259,14 +208,14 @@ class ScannetDatasetVirtualScanArase():
         semantic_seg = semantic_seg[choice] # N
         sample_weight = sample_weight[choice] # N
 
-        xyz = self.scene_points_list[index]
+        xyz = self.scene_points_list[data_ind]
         camloc = np.mean(xyz,axis=0)
         camloc[2] = 1.5
-        view_dr = np.array([np.pi/4.*ind, 0])
+        view_dr = np.array([np.pi/4.*view_ind, 0])
         camloc[:2] -= np.array([np.cos(view_dr[0]),np.sin(view_dr[0])])
         point_set[:, :2] -= camloc[:2]
 
-        r_rotation = self.__get_rotation_matrix(-ind+1)
+        r_rotation = self.__get_rotation_matrix(-view_ind+1)
         rotated = point_set.dot(r_rotation)
 
         return point_set, semantic_seg, sample_weight
