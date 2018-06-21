@@ -218,7 +218,7 @@ class ScannetDatasetVirtualScan():
         r_rotation = self.__get_rotation_matrix(-view_ind+1)
         rotated = point_set.dot(r_rotation)
 
-        return point_set, semantic_seg, sample_weight
+        return rotated, semantic_seg, sample_weight
 
     # def get_batch(root, npoints=8192, split='train', whole=False):
     #     dataset = tf.data.Dataset.from_tensor_slices((self.scene_points_list, self.semantic_labels_list, self.smpidx)) # dataset
