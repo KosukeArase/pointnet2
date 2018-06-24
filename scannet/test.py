@@ -7,13 +7,15 @@ import time
 import os
 import scipy.misc
 import sys
+import itertools
+import pickle
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-sys.path.append(BASE_DIR)
 ROOT_DIR = os.path.dirname(BASE_DIR)
-sys.path.append(os.path.join(BASE_DIR, 'models'))
-sys.path.append(os.path.join(BASE_DIR, 'utils'))
+sys.path.append(os.path.join(ROOT_DIR, 'models'))
+sys.path.append(os.path.join(ROOT_DIR, 'utils'))
 import provider
-import show3d_balls
+import scannet_dataset
+# import show3d_balls
 
 
 parser = argparse.ArgumentParser()
@@ -31,10 +33,10 @@ OUTPUT_PATH = FLAGS.output_dir
 GPU_INDEX = FLAGS.gpu
 NUM_POINT = FLAGS.num_point
 MODEL = importlib.import_module(FLAGS.model) # import network module
-NUM_CLASSES = 4
+NUM_CLASSES = 21
 DATA_PATH = os.path.join(ROOT_DIR,'data','{}_data_pointnet2'.format(FLAGS.dataset))
 
-TEST_DATASET = TEST_DATASET = scannet_dataset.ScannetDatasetVirtualScan(root=DATA_PATH, npoints=NUM_POINT, split='test', dataset=FLAGS.dataset)
+TEST_DATASET = scannet_dataset.ScannetDatasetVirtualScan(root=DATA_PATH, npoints=NUM_POINT, split='test', dataset=FLAGS.dataset)
 
 
 if not os.path.exists(OUTPUT_PATH):
@@ -44,10 +46,10 @@ if not os.path.exists(OUTPUT_PATH):
 def get_model(batch_size, num_point):
     with tf.Graph().as_default():
         with tf.device('/gpu:'+str(GPU_INDEX)):
-            pointclouds_pl, labels_pl = MODEL.placeholder_inputs(batch_size, num_point)
+            pointclouds_pl, labels_pl, _ = MODEL.placeholder_inputs(batch_size, num_point)
             is_training_pl = tf.placeholder(tf.bool, shape=())
-            pred, end_points = MODEL.get_model(pointclouds_pl, is_training_pl)
-            loss = MODEL.get_loss(pred, labels_pl, end_points)
+            pred, end_points = MODEL.get_model(pointclouds_pl, is_training_pl, NUM_CLASSES)
+            # loss = MODEL.get_loss(pred, labels_pl, end_points)
             saver = tf.train.Saver()
         # Create a session
         config = tf.ConfigProto()
@@ -59,8 +61,8 @@ def get_model(batch_size, num_point):
         ops = {'pointclouds_pl': pointclouds_pl,
                'labels_pl': labels_pl,
                'is_training_pl': is_training_pl,
-               'pred': pred,
-               'loss': loss}
+               'pred': pred} # ,
+               # 'loss': loss}
         return sess, ops
 
 def inference(sess, ops, pc, batch_size):
@@ -76,17 +78,35 @@ def inference(sess, ops, pc, batch_size):
     return np.argmax(logits, 2)
 
 if __name__=='__main__':
+    # import matplotlib.pyplot as plt
+    # cmap = plt.cm.get_cmap("hsv", 4)
+    # cmap = np.array([cmap(i) for i in range(10)])[:,:3]
 
-    import matplotlib.pyplot as plt
-    cmap = plt.cm.get_cmap("hsv", 4)
-    cmap = np.array([cmap(i) for i in range(10)])[:,:3]
+    N = len(TEST_DATASET)
+    pcs = np.empty([N, 8, NUM_POINT, 3])
+    preds = np.empty([N, 8, NUM_POINT])
+    gts = np.empty([N, 8, NUM_POINT])
 
-    for i in range(len(TEST_DATASET)):
-        ps, seg = TEST_DATASET[i]
-        sess, ops = get_model(batch_size=1, num_point=ps.shape[0])
-        segp = inference(sess, ops, np.expand_dims(ps,0), batch_size=1) 
-        segp = segp.squeeze()
+    sess, ops = get_model(batch_size=1, num_point=NUM_POINT)
 
-        gt = cmap[seg, :]
-        pred = cmap[segp, :]
-        show3d_balls.showpoints(ps, gt, pred, ballradius=8)
+    for i, (data_idx, view_idx) in enumerate(itertools.product(range(len(TEST_DATASET)), range(8))):
+        pc, gt, _ = TEST_DATASET[(data_idx, view_idx)]
+        pred = inference(sess, ops, np.expand_dims(pc, 0), batch_size=1) 
+        pred = pred.squeeze()
+
+        pcs[data_idx, view_idx] = pc
+        preds[data_idx, view_idx] = pred
+        gts[data_idx, view_idx] = gt
+
+        # gt = cmap[seg, :]
+        # pred = cmap[segp, :]
+        # show3d_balls.showpoints(ps, gt, pred, ballradius=8)
+
+    result = {'pcs': pcs, 'preds': preds, 'gts': gts}
+
+    experiment_name = MODEL_PATH.split('/')[-2]
+    result_file = os.path.join(OUTPUT_PATH, experiment_name + '.pkl')
+
+    print('Save result as {}'.format(result_file))
+    with open(result_file, 'wb') as f:
+        pickle.dump(result, f)
