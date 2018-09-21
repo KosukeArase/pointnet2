@@ -125,11 +125,13 @@ class ScannetDatasetVirtualScan():
         self.npoints = npoints
         self.root = root
         self.split = split
-        self.data_filename = os.path.join(self.root, '{}_{}.pickle'.format(dataset, split))
+        # self.data_filename = os.path.join(self.root, '{}_{}.pickle'.format(dataset, split))
+        self.data_filename = os.path.join(self.root, 'test_color.pkl')
         self.smpidx_filename = os.path.join(self.root, '{}_{}_smpidx.pickle'.format(dataset, split))
         with open(self.data_filename,'rb') as fp:
             self.scene_points_list = pickle.load(fp)
             self.semantic_labels_list = pickle.load(fp)
+            self.scene_colors_list = pickle.load(fp)
         if split=='train':
             labelweights = np.zeros(21)
             for seg in self.semantic_labels_list:
@@ -190,6 +192,7 @@ class ScannetDatasetVirtualScan():
     def __getitem__(self, inds):
         data_ind, view_ind = inds
         point_set_ini = self.scene_points_list[data_ind]
+        color_set_ini = self.scene_colors_list[data_ind]
         semantic_seg_ini = self.semantic_labels_list[data_ind].astype(np.int32)
         sample_weight_ini = self.labelweights[semantic_seg_ini]
 
@@ -200,11 +203,13 @@ class ScannetDatasetVirtualScan():
             raise ValueError('Data-{} from view-{} is invalid.'.format(data_ind, view_ind))
 
         point_set = point_set_ini[smpidx,:]
+        color_set = color_set_ini[smpidx,:]
         semantic_seg = semantic_seg_ini[smpidx]
         sample_weight = sample_weight_ini[smpidx]
 
         choice = np.random.choice(len(semantic_seg), self.npoints, replace=True)
         point_set = point_set[choice,:] # Nx3
+        color_set = color_set[choice,:] # Nx3
         semantic_seg = semantic_seg[choice] # N
         sample_weight = sample_weight[choice] # N
 
@@ -218,7 +223,7 @@ class ScannetDatasetVirtualScan():
         r_rotation = self.__get_rotation_matrix(-view_ind+1)
         rotated = point_set.dot(r_rotation)
 
-        return rotated, semantic_seg, sample_weight
+        return rotated, semantic_seg, sample_weight, color_set
 
     # def get_batch(root, npoints=8192, split='train', whole=False):
     #     dataset = tf.data.Dataset.from_tensor_slices((self.scene_points_list, self.semantic_labels_list, self.smpidx)) # dataset

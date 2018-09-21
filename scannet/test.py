@@ -86,23 +86,25 @@ if __name__=='__main__':
     pcs = np.empty([N, 8, NUM_POINT, 3])
     preds = np.empty([N, 8, NUM_POINT])
     gts = np.empty([N, 8, NUM_POINT])
+    colors = np.empty([N, 8, NUM_POINT, 3])
 
     sess, ops = get_model(batch_size=1, num_point=NUM_POINT)
 
     for i, (data_idx, view_idx) in enumerate(itertools.product(range(len(TEST_DATASET)), range(8))):
-        pc, gt, _ = TEST_DATASET[(data_idx, view_idx)]
-        pred = inference(sess, ops, np.expand_dims(pc, 0), batch_size=1) 
+        ps, gt, _, color = TEST_DATASET[(data_idx, view_idx)] # ps: xyzrgb
+        pred = inference(sess, ops, np.expand_dims(ps[:, :3], 0), batch_size=1) 
         pred = pred.squeeze()
 
-        pcs[data_idx, view_idx] = pc
+        pcs[data_idx, view_idx] = ps
         preds[data_idx, view_idx] = pred
         gts[data_idx, view_idx] = gt
+        colors[data_idx, view_idx] = color
 
         # gt = cmap[seg, :]
         # pred = cmap[segp, :]
         # show3d_balls.showpoints(ps, gt, pred, ballradius=8)
 
-    result = {'pcs': pcs, 'preds': preds, 'gts': gts}
+    result = {'pcs': pcs, 'preds': preds, 'gts': gts, 'colors': colors}
 
     experiment_name = MODEL_PATH.split('/')[-2]
     result_file = os.path.join(OUTPUT_PATH, experiment_name + '.pkl')
