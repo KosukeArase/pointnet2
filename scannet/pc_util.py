@@ -31,7 +31,7 @@ def point_cloud_label_to_surface_voxel_label(point_cloud, label, res=0.0484):
         uvlabel = [np.argmax(np.bincount(label[vidx==uv].astype(np.uint32))) for uv in uvidx]
     else:
         assert(label.ndim==2)
-        uvlabel = np.zeros(len(uvidx),label.shape[1])
+        uvlabel = np.zeros((len(uvidx),label.shape[1]), dtype=np.uint32)
         for i in range(label.shape[1]):
             uvlabel[:,i] = np.array([np.argmax(np.bincount(label[vidx==uv,i].astype(np.uint32))) for uv in uvidx])
     return uvidx, uvlabel, nvox
