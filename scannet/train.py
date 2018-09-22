@@ -199,18 +199,24 @@ def get_batch_wdp(dataset, idxs, start_idx, end_idx):
     batch_label = np.zeros((bsize, NUM_POINT), dtype=np.int32)
     batch_smpw = np.zeros((bsize, NUM_POINT), dtype=np.float32)
     for i in range(bsize):
-        data_idx, view_idx = idxs[i+start_idx]
+        idx = idxs[i+start_idx]
         while True:
             try:
-                ps,seg,smpw = dataset[(data_idx, view_idx)]
+                ps, seg, smpw = dataset[idx]
                 break
             except Exception as e:
-                old_data_idx, old_view_idx = data_idx, view_idx
-                data_idx = np.random.randint(len(dataset))
-                view_idx = np.random.randint(8)
                 print(e)
-                print('Data-{} from view-{} is invalid. Instead, use data-{} from view-{}'.format(old_data_idx, old_view_idx, data_idx, view_idx))
-                
+                if whole:
+                    old_idx = idx
+                    idx = np.random.randint(len(dataset))
+                    print('Data-{} is invalid. Instead, use data-{}'.format(old_idx, idx))
+                else:
+                    old_data_idx, old_view_idx = idx
+                    data_idx = np.random.randint(len(dataset))
+                    view_idx = np.random.randint(8)
+                    idx = (data_idx, view_idx)
+                    print('Data-{} from view-{} is invalid. Instead, use data-{} from view-{}'.format(old_data_idx, old_view_idx, data_idx, view_idx))
+
         batch_data[i,...] = ps
         batch_label[i,:] = seg
         batch_smpw[i,:] = smpw
@@ -229,16 +235,25 @@ def get_batch(dataset, idxs, start_idx, end_idx):
     batch_label = np.zeros((bsize, NUM_POINT), dtype=np.int32)
     batch_smpw = np.zeros((bsize, NUM_POINT), dtype=np.float32)
     for i in range(bsize):
-        data_idx = idxs[i+start_idx]
-        view_idx = random.randint(0, 7)
+        idx = idxs[i+start_idx]
+        if not whole:
+            idx = (idx, random.randint(0, 7))
         while True:
             try:
-                ps,seg,smpw = dataset[(data_idx, view_idx)]
+                ps, seg, smpw = dataset[idx]
                 break
-            except:
-                print('Data-{} from view-{} was invalid.'.format(data_idx, view_idx))
-                idx = np.random.randint(len(dataset))
-                print('Instead, use data-{}.'.format(data_idx))
+            except Exception as e:
+                print(e)
+                if whole:
+                    old_idx = idx
+                    idx = np.random.randint(len(dataset))
+                    print('Data-{} is invalid. Instead, use data-{}'.format(old_idx, idx))
+                else:
+                    old_data_idx, old_view_idx = idx
+                    data_idx = np.random.randint(len(dataset))
+                    view_idx = np.random.randint(8)
+                    idx = (data_idx, view_idx)
+                    print('Data-{} from view-{} is invalid. Instead, use data-{} from view-{}'.format(old_data_idx, old_view_idx, data_idx, view_idx))
 
         batch_data[i,...] = ps
         batch_label[i,:] = seg
@@ -251,7 +266,10 @@ def train_one_epoch(sess, ops, train_writer):
     is_training = True
 
     # Shuffle train samples
-    train_idxs = list([x for x in itertools.product(range(len(TRAIN_DATASET)), range(8))])
+    if FLAGS.whole:
+        train_idxs = np.arange(0, len(TRAIN_DATASET))
+    else:
+        train_idxs = list([x for x in itertools.product(range(len(TRAIN_DATASET)), range(8))])
     np.random.shuffle(train_idxs)
     num_batches = len(train_idxs)/BATCH_SIZE
 
