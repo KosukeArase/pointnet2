@@ -6,7 +6,7 @@ import pc_util
 import scene_util
 
 class ScannetDataset():
-    def __init__(self, root, npoints=8192, split='train', dataset='scannet'):
+    def __init__(self, root, npoints=8192, split='train', dataset='s3dis', num_classes=13):
         self.npoints = npoints
         self.root = root
         self.split = split
@@ -15,15 +15,15 @@ class ScannetDataset():
             self.scene_points_list = pickle.load(fp)
             self.semantic_labels_list = pickle.load(fp)
         if split=='train':
-            labelweights = np.zeros(21)
+            labelweights = np.zeros(num_classes)
             for seg in self.semantic_labels_list:
-                tmp,_ = np.histogram(seg,range(22))
+                tmp,_ = np.histogram(seg,range(num_classes+1))
                 labelweights += tmp
             labelweights = labelweights.astype(np.float32)
             labelweights = labelweights/np.sum(labelweights)
             self.labelweights = 1/np.log(1.2+labelweights)
         elif split=='test':
-            self.labelweights = np.ones(21)
+            self.labelweights = np.ones(num_classes)
     def __getitem__(self, index):
         point_set = self.scene_points_list[index]
         semantic_seg = self.semantic_labels_list[index].astype(np.int32)
@@ -61,25 +61,26 @@ class ScannetDataset():
     def __len__(self):
         return len(self.scene_points_list)
 
+
 class ScannetDatasetWholeScene():
-    def __init__(self, root, npoints=8192, split='train', dataset='scannet'):
+    def __init__(self, root, npoints=8192, split='train', dataset='s3dis', num_classes=13):
         self.npoints = npoints
         self.root = root
         self.split = split
         self.data_filename = os.path.join(self.root, '{}_{}.pickle'.format(dataset, split))
-        with open(self.data_filename,'rb') as fp:
+        with open(self.data_filename, 'rb') as fp:
             self.scene_points_list = pickle.load(fp)
             self.semantic_labels_list = pickle.load(fp)
-        if split=='train':
-            labelweights = np.zeros(21)
+        if split == 'train':
+            labelweights = np.zeros(num_classes)
             for seg in self.semantic_labels_list:
-                tmp,_ = np.histogram(seg,range(22))
+                tmp, _ = np.histogram(seg, range(num_classes+1))
                 labelweights += tmp
             labelweights = labelweights.astype(np.float32)
             labelweights = labelweights/np.sum(labelweights)
             self.labelweights = 1/np.log(1.2+labelweights)
-        elif split=='test':
-            self.labelweights = np.ones(21)
+        elif split == 'test':
+            self.labelweights = np.ones(num_classes)
     def __getitem__(self, index):
         point_set_ini = self.scene_points_list[index]
         semantic_seg_ini = self.semantic_labels_list[index].astype(np.int32)

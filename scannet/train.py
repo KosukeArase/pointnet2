@@ -70,19 +70,21 @@ DATA_PATH = os.path.join(ROOT_DIR,'data','{}_data_pointnet2'.format(FLAGS.datase
 
 if FLAGS.whole:
     print('Use whole scan data')
-    TRAIN_DATASET = scannet_dataset.ScannetDataset(root=DATA_PATH, npoints=NUM_POINT, split='train', dataset=FLAGS.dataset)
-    TEST_DATASET = scannet_dataset.ScannetDataset(root=DATA_PATH, npoints=NUM_POINT, split='test', dataset=FLAGS.dataset)
-    TEST_DATASET_WHOLE_SCENE = scannet_dataset.ScannetDatasetWholeScene(root=DATA_PATH, npoints=NUM_POINT, split='test', dataset=FLAGS.dataset)
+    TRAIN_DATASET = scannet_dataset.ScannetDataset(root=DATA_PATH, npoints=NUM_POINT, split='train', dataset=FLAGS.dataset, num_classes=FLAGS.num_classes)
+    TEST_DATASET = scannet_dataset.ScannetDataset(root=DATA_PATH, npoints=NUM_POINT, split='test', dataset=FLAGS.dataset, num_classes=FLAGS.num_classes)
+    TEST_DATASET_WHOLE_SCENE = scannet_dataset.ScannetDatasetWholeScene(root=DATA_PATH, npoints=NUM_POINT, split='test', dataset=FLAGS.dataset, num_classes=FLAGS.num_classes)
 else:
     print('Use virtual scan data')
     # train_batch, init_op = scannet_dataset.scannet_dataset(root=DATA_PATH, npoints=NUM_POINT, split='train', whole=FLAGS.whole, dataset=FLAGS.dataset)
     TRAIN_DATASET = scannet_dataset.ScannetDatasetVirtualScan(root=DATA_PATH, npoints=NUM_POINT, split='train', dataset=FLAGS.dataset, num_classes=FLAGS.num_classes)
     TEST_DATASET = scannet_dataset.ScannetDatasetVirtualScan(root=DATA_PATH, npoints=NUM_POINT, split='test', dataset=FLAGS.dataset, num_classes=FLAGS.num_classes)
 
+
 def log_string(out_str):
     LOG_FOUT.write(out_str+'\n')
     LOG_FOUT.flush()
     print(out_str)
+
 
 def get_learning_rate(batch):
     learning_rate = tf.train.exponential_decay(
@@ -94,6 +96,7 @@ def get_learning_rate(batch):
     learing_rate = tf.maximum(learning_rate, 0.00001) # CLIP THE LEARNING RATE!
     return learning_rate        
 
+
 def get_bn_decay(batch):
     bn_momentum = tf.train.exponential_decay(
                       BN_INIT_DECAY,
@@ -103,6 +106,7 @@ def get_bn_decay(batch):
                       staircase=True)
     bn_decay = tf.minimum(BN_DECAY_CLIP, 1 - bn_momentum)
     return bn_decay
+
 
 def train():
     with tf.Graph().as_default():
@@ -177,6 +181,7 @@ def train():
                 acc = eval_one_epoch(sess, ops, test_writer)
                 if FLAGS.whole:
                     acc = eval_whole_scene_one_epoch(sess, ops, test_writer)
+
             if acc > best_acc:
                 best_acc = acc
                 save_path = saver.save(sess, os.path.join(LOG_DIR, "best_model_epoch_%03d.ckpt"%(epoch)))
@@ -186,6 +191,7 @@ def train():
             if epoch % 10 == 0:
                 save_path = saver.save(sess, os.path.join(LOG_DIR, "model.ckpt"))
                 log_string("Model saved in file: %s" % save_path)
+
 
 def get_batch_wdp(dataset, idxs, start_idx, end_idx):
     bsize = end_idx-start_idx
@@ -216,6 +222,7 @@ def get_batch_wdp(dataset, idxs, start_idx, end_idx):
         batch_smpw[i,drop_idx] *= 0
     return batch_data, batch_label, batch_smpw
 
+
 def get_batch(dataset, idxs, start_idx, end_idx):
     bsize = end_idx-start_idx
     batch_data = np.zeros((bsize, NUM_POINT, 3))
@@ -238,15 +245,16 @@ def get_batch(dataset, idxs, start_idx, end_idx):
         batch_smpw[i,:] = smpw
     return batch_data, batch_label, batch_smpw
 
+
 def train_one_epoch(sess, ops, train_writer):
     """ ops: dict mapping from string to tf ops """
     is_training = True
-    
+
     # Shuffle train samples
     train_idxs = list([x for x in itertools.product(range(len(TRAIN_DATASET)), range(8))])
     np.random.shuffle(train_idxs)
     num_batches = len(train_idxs)/BATCH_SIZE
-    
+
     log_string(str(datetime.now()))
 
     total_correct = 0
@@ -278,7 +286,8 @@ def train_one_epoch(sess, ops, train_writer):
             total_seen = 0
             loss_sum = 0
 
-# evaluate on randomly chopped scenes
+
+#  evaluate on randomly chopped scenes
 def eval_one_epoch(sess, ops, test_writer):
     """ ops: dict mapping from string to tf ops """
     global EPOCH_CNT
@@ -296,9 +305,9 @@ def eval_one_epoch(sess, ops, test_writer):
     total_seen_vox = 0
     total_seen_class_vox = [0 for _ in range(FLAGS.num_classes)]
     total_correct_class_vox = [0 for _ in range(FLAGS.num_classes)]
-    
+
     log_string(str(datetime.now()))
-    log_string('---- EPOCH %03d EVALUATION ----'%(EPOCH_CNT))
+    log_string('---- EPOCH %03d EVALUATION ----' % (EPOCH_CNT))
 
     labelweights = np.zeros(FLAGS.num_classes)
     labelweights_vox = np.zeros(FLAGS.num_classes)
@@ -314,24 +323,32 @@ def eval_one_epoch(sess, ops, test_writer):
                      ops['smpws_pl']: batch_smpw,
                      ops['is_training_pl']: is_training}
         summary, step, loss_val, pred_val = sess.run([ops['merged'], ops['step'],
-            ops['loss'], ops['pred']], feed_dict=feed_dict)
+                                                      ops['loss'], ops['pred']], feed_dict=feed_dict)
         test_writer.add_summary(summary, step)
-        pred_val = np.argmax(pred_val, 2) # BxN
-        correct = np.sum((pred_val == batch_label) & (batch_label>0) & (batch_smpw>0)) # evaluate only on 20 categories but not unknown
+        pred_val = np.argmax(pred_val, 2)  # BxN
+        correct = np.sum((pred_val == batch_label) & (batch_smpw > 0))
         total_correct += correct
-        total_seen += np.sum((batch_label>0) & (batch_smpw>0))
+        total_seen += np.sum(batch_smpw > 0)
         loss_sum += loss_val
-        tmp,_ = np.histogram(batch_label,range(FLAGS.num_classes+1))
+        tmp, _ = np.histogram(batch_label, range(FLAGS.num_classes+1))
         labelweights += tmp
+
         for l in range(FLAGS.num_classes):
-            total_seen_class[l] += np.sum((batch_label==l) & (batch_smpw>0))
-            total_correct_class[l] += np.sum((pred_val==l) & (batch_label==l) & (batch_smpw>0))
+            total_seen_class[l] += np.sum((batch_label == l) & (batch_smpw > 0))
+            total_correct_class[l] += np.sum((pred_val == l) & (batch_label == l) & (batch_smpw > 0))
 
         for b in xrange(batch_label.shape[0]):
-            _, uvlabel, _ = pc_util.point_cloud_label_to_surface_voxel_label_fast(aug_data[b,batch_smpw[b,:]>0,:], np.concatenate((np.expand_dims(batch_label[b,batch_smpw[b,:]>0],1),np.expand_dims(pred_val[b,batch_smpw[b,:]>0],1)),axis=1), res=0.02)
-            total_correct_vox += np.sum((uvlabel[:,0]==uvlabel[:,1])&(uvlabel[:,0]>0))
-            total_seen_vox += np.sum(uvlabel[:,0]>0)
-            tmp,_ = np.histogram(uvlabel[:,0],range(FLAGS.num_classes+1))
+            _, uvlabel, _ = pc_util.point_cloud_label_to_surface_voxel_label_fast(  # Point to voxel index (a point for each voxel)
+                aug_data[b, batch_smpw[b, :] > 0, :],
+                np.concatenate(
+                    (np.expand_dims(batch_label[b, batch_smpw[b, :] > 0], 1), np.expand_dims(pred_val[b, batch_smpw[b, :] > 0], 1)),
+                    axis=1
+                ),
+                res=0.02
+            )
+            total_correct_vox += np.sum((uvlabel[:, 0] == uvlabel[:, 1]) & (uvlabel[:, 0] > 0))
+            total_seen_vox += np.sum(uvlabel[:, 0] > 0)
+            tmp, _ = np.histogram(uvlabel[:, 0], range(FLAGS.num_classes+1))
             labelweights_vox += tmp
             for l in range(FLAGS.num_classes):
                 total_seen_class_vox[l] += np.sum(uvlabel[:,0]==l)
@@ -343,7 +360,7 @@ def eval_one_epoch(sess, ops, test_writer):
     log_string('eval point accuracy: %f'% (total_correct / float(total_seen)))
     log_string('eval point avg class acc: %f' % (np.mean(np.array(total_correct_class)/(np.array(total_seen_class,dtype=np.float)+1e-6))))
     labelweights_vox = labelweights_vox.astype(np.float32)/np.sum(labelweights_vox.astype(np.float32))
-    caliweights = np.ones(FLAGS.num_classes) #  np.array([0.388,0.357,0.038,0.033,0.017,0.02,0.016,0.025,0.002,0.002,0.002,0.007,0.006,0.022,0.004,0.0004,0.003,0.002,0.024,0.029])
+    caliweights = np.ones(FLAGS.num_classes)  # np.array([0.388,0.357,0.038,0.033,0.017,0.02,0.016,0.025,0.002,0.002,0.002,0.007,0.006,0.022,0.004,0.0004,0.003,0.002,0.024,0.029])
     log_string('eval point calibrated average acc: %f' % (np.average(np.array(total_correct_class)/(np.array(total_seen_class,dtype=np.float)+1e-6),weights=caliweights)))
     per_class_str = 'vox based --------'
     for l in range(FLAGS.num_classes):
@@ -352,109 +369,116 @@ def eval_one_epoch(sess, ops, test_writer):
     EPOCH_CNT += 1
     return total_correct/float(total_seen)
 
+
 # evaluate on whole scenes to generate numbers provided in the paper
-# def eval_whole_scene_one_epoch(sess, ops, test_writer):
-#     """ ops: dict mapping from string to tf ops """
-#     global EPOCH_CNT
-#     is_training = False
-#     test_idxs = np.arange(0, len(TEST_DATASET_WHOLE_SCENE))
-#     num_batches = len(TEST_DATASET_WHOLE_SCENE)
+def eval_whole_scene_one_epoch(sess, ops, test_writer):
+    """ ops: dict mapping from string to tf ops """
+    global EPOCH_CNT
+    is_training = False
+    test_idxs = np.arange(0, len(TEST_DATASET_WHOLE_SCENE))
+    num_batches = len(TEST_DATASET_WHOLE_SCENE)
 
-#     total_correct = 0
-#     total_seen = 0
-#     loss_sum = 0
-#     total_seen_class = [0 for _ in range(FLAGS.num_classes)]
-#     total_correct_class = [0 for _ in range(FLAGS.num_classes)]
+    total_correct = 0
+    total_seen = 0
+    loss_sum = 0
+    total_seen_class = [0 for _ in range(FLAGS.num_classes)]
+    total_correct_class = [0 for _ in range(FLAGS.num_classes)]
 
-#     total_correct_vox = 0
-#     total_seen_vox = 0
-#     total_seen_class_vox = [0 for _ in range(FLAGS.num_classes)]
-#     total_correct_class_vox = [0 for _ in range(FLAGS.num_classes)]
-    
-#     log_string(str(datetime.now()))
-#     log_string('---- EPOCH %03d EVALUATION WHOLE SCENE----'%(EPOCH_CNT))
+    total_correct_vox = 0
+    total_seen_vox = 0
+    total_seen_class_vox = [0 for _ in range(FLAGS.num_classes)]
+    total_correct_class_vox = [0 for _ in range(FLAGS.num_classes)]
 
-#     labelweights = np.zeros(FLAGS.num_classes)
-#     labelweights_vox = np.zeros(FLAGS.num_classes)
-#     is_continue_batch = False
-    
-#     extra_batch_data = np.zeros((0,NUM_POINT,3))
-#     extra_batch_label = np.zeros((0,NUM_POINT))
-#     extra_batch_smpw = np.zeros((0,NUM_POINT))
-#     for batch_idx in range(num_batches):
-#         if not is_continue_batch:
-#             batch_data, batch_label, batch_smpw = TEST_DATASET_WHOLE_SCENE[batch_idx]
-#             batch_data = np.concatenate((batch_data,extra_batch_data),axis=0)
-#             batch_label = np.concatenate((batch_label,extra_batch_label),axis=0)
-#             batch_smpw = np.concatenate((batch_smpw,extra_batch_smpw),axis=0)
-#         else:
-#             batch_data_tmp, batch_label_tmp, batch_smpw_tmp = TEST_DATASET_WHOLE_SCENE[batch_idx]
-#             batch_data = np.concatenate((batch_data,batch_data_tmp),axis=0)
-#             batch_label = np.concatenate((batch_label,batch_label_tmp),axis=0)
-#             batch_smpw = np.concatenate((batch_smpw,batch_smpw_tmp),axis=0)
-#         if batch_data.shape[0]<BATCH_SIZE:
-#             is_continue_batch = True
-#             continue
-#         elif batch_data.shape[0]==BATCH_SIZE:
-#             is_continue_batch = False
-#             extra_batch_data = np.zeros((0,NUM_POINT,3))
-#             extra_batch_label = np.zeros((0,NUM_POINT))
-#             extra_batch_smpw = np.zeros((0,NUM_POINT))
-#         else:
-#             is_continue_batch = False
-#             extra_batch_data = batch_data[BATCH_SIZE:,:,:]
-#             extra_batch_label = batch_label[BATCH_SIZE:,:]
-#             extra_batch_smpw = batch_smpw[BATCH_SIZE:,:]
-#             batch_data = batch_data[:BATCH_SIZE,:,:]
-#             batch_label = batch_label[:BATCH_SIZE,:]
-#             batch_smpw = batch_smpw[:BATCH_SIZE,:]
+    log_string(str(datetime.now()))
+    log_string('---- EPOCH %03d EVALUATION WHOLE SCENE----' % (EPOCH_CNT))
 
-#         aug_data = batch_data
-#         feed_dict = {ops['pointclouds_pl']: aug_data,
-#                      ops['labels_pl']: batch_label,
-#                      ops['smpws_pl']: batch_smpw,
-#                      ops['is_training_pl']: is_training}
-#         summary, step, loss_val, pred_val = sess.run([ops['merged'], ops['step'],
-#             ops['loss'], ops['pred']], feed_dict=feed_dict)
-#         test_writer.add_summary(summary, step)
-#         pred_val = np.argmax(pred_val, 2) # BxN
-#         correct = np.sum((pred_val == batch_label) & (batch_label>0) & (batch_smpw>0)) # evaluate only on 20 categories but not unknown
-#         total_correct += correct
-#         total_seen += np.sum((batch_label>0) & (batch_smpw>0))
-#         loss_sum += loss_val
-#         tmp,_ = np.histogram(batch_label,range(FLAGS.num_classes+1))
-#         labelweights += tmp
-#         for l in range(FLAGS.num_classes):
-#             total_seen_class[l] += np.sum((batch_label==l) & (batch_smpw>0))
-#             total_correct_class[l] += np.sum((pred_val==l) & (batch_label==l) & (batch_smpw>0))
+    labelweights = np.zeros(FLAGS.num_classes)
+    labelweights_vox = np.zeros(FLAGS.num_classes)
+    is_continue_batch = False
 
-#         for b in xrange(batch_label.shape[0]):
-#             _, uvlabel, _ = pc_util.point_cloud_label_to_surface_voxel_label_fast(aug_data[b,batch_smpw[b,:]>0,:], np.concatenate((np.expand_dims(batch_label[b,batch_smpw[b,:]>0],1),np.expand_dims(pred_val[b,batch_smpw[b,:]>0],1)),axis=1), res=0.02)
-#             total_correct_vox += np.sum((uvlabel[:,0]==uvlabel[:,1])&(uvlabel[:,0]>0))
-#             total_seen_vox += np.sum(uvlabel[:,0]>0)
-#             tmp,_ = np.histogram(uvlabel[:,0],range(FLAGS.num_classes+1))
-#             labelweights_vox += tmp
-#             for l in range(FLAGS.num_classes):
-#                 total_seen_class_vox[l] += np.sum(uvlabel[:,0]==l)
-#                 total_correct_class_vox[l] += np.sum((uvlabel[:,0]==l) & (uvlabel[:,1]==l))
+    extra_batch_data = np.zeros((0, NUM_POINT, 3))
+    extra_batch_label = np.zeros((0, NUM_POINT))
+    extra_batch_smpw = np.zeros((0, NUM_POINT))
+    for batch_idx in range(num_batches):
+        if not is_continue_batch:
+            batch_data, batch_label, batch_smpw = TEST_DATASET_WHOLE_SCENE[batch_idx]
+            batch_data = np.concatenate((batch_data, extra_batch_data), axis=0)
+            batch_label = np.concatenate((batch_label, extra_batch_label), axis=0)
+            batch_smpw = np.concatenate((batch_smpw, extra_batch_smpw), axis=0)
+        else:
+            batch_data_tmp, batch_label_tmp, batch_smpw_tmp = TEST_DATASET_WHOLE_SCENE[batch_idx]
+            batch_data = np.concatenate((batch_data, batch_data_tmp), axis=0)
+            batch_label = np.concatenate((batch_label, batch_label_tmp), axis=0)
+            batch_smpw = np.concatenate((batch_smpw, batch_smpw_tmp), axis=0)
+        if batch_data.shape[0] < BATCH_SIZE:
+            is_continue_batch = True
+            continue
+        elif batch_data.shape[0] == BATCH_SIZE:
+            is_continue_batch = False
+            extra_batch_data = np.zeros((0, NUM_POINT, 3))
+            extra_batch_label = np.zeros((0, NUM_POINT))
+            extra_batch_smpw = np.zeros((0, NUM_POINT))
+        else:
+            is_continue_batch = False
+            extra_batch_data = batch_data[BATCH_SIZE:, :, :]
+            extra_batch_label = batch_label[BATCH_SIZE:, :]
+            extra_batch_smpw = batch_smpw[BATCH_SIZE:, :]
+            batch_data = batch_data[:BATCH_SIZE, :, :]
+            batch_label = batch_label[:BATCH_SIZE, :]
+            batch_smpw = batch_smpw[:BATCH_SIZE, :]
 
-#     log_string('eval whole scene mean loss: %f' % (loss_sum / float(num_batches)))
-#     log_string('eval whole scene point accuracy vox: %f'% (total_correct_vox / float(total_seen_vox)))
-#     log_string('eval whole scene point avg class acc vox: %f' % (np.mean(np.array(total_correct_class_vox[1:])/(np.array(total_seen_class_vox[1:],dtype=np.float)+1e-6))))
-#     log_string('eval whole scene point accuracy: %f'% (total_correct / float(total_seen)))
-#     log_string('eval whole scene point avg class acc: %f' % (np.mean(np.array(total_correct_class[1:])/(np.array(total_seen_class[1:],dtype=np.float)+1e-6))))
-#     labelweights = labelweights[1:].astype(np.float32)/np.sum(labelweights[1:].astype(np.float32))
-#     labelweights_vox = labelweights_vox[1:].astype(np.float32)/np.sum(labelweights_vox[1:].astype(np.float32))
-#     caliweights = np.array([0.388,0.357,0.038,0.033,0.017,0.02,0.016,0.025,0.002,0.002,0.002,0.007,0.006,0.022,0.004,0.0004,0.003,0.002,0.024,0.029])
-#     caliacc = np.average(np.array(total_correct_class_vox[1:])/(np.array(total_seen_class_vox[1:],dtype=np.float)+1e-6),weights=caliweights)
-#     log_string('eval whole scene point calibrated average acc vox: %f' % caliacc)
+        aug_data = batch_data
+        feed_dict = {ops['pointclouds_pl']: aug_data,
+                     ops['labels_pl']: batch_label,
+                     ops['smpws_pl']: batch_smpw,
+                     ops['is_training_pl']: is_training}
+        summary, step, loss_val, pred_val = sess.run([ops['merged'], ops['step'],
+                                                      ops['loss'], ops['pred']], feed_dict=feed_dict)
+        test_writer.add_summary(summary, step)
+        pred_val = np.argmax(pred_val, 2)  # BxN
+        correct = np.sum((pred_val == batch_label) & (batch_smpw > 0))
+        total_correct += correct
+        total_seen += np.sum(batch_smpw > 0)
+        loss_sum += loss_val
+        tmp, _ = np.histogram(batch_label, range(FLAGS.num_classes+1))
+        labelweights += tmp
+        for l in range(FLAGS.num_classes):
+            total_seen_class[l] += np.sum((batch_label == l) & (batch_smpw > 0))
+            total_correct_class[l] += np.sum((pred_val == l) & (batch_label == l) & (batch_smpw > 0))
 
-#     per_class_str = 'vox based --------'
-#     for l in range(1,FLAGS.num_classes):
-#         per_class_str += 'class %d weight: %f, acc: %f; ' % (l,labelweights_vox[l-1],total_correct_class_vox[l]/float(total_seen_class_vox[l]))
-#     log_string(per_class_str)
-#     EPOCH_CNT += 1
-#     return caliacc
+        for b in xrange(batch_label.shape[0]):
+            _, uvlabel, _ = pc_util.point_cloud_label_to_surface_voxel_label_fast(
+                aug_data[b, batch_smpw[b, :] > 0, :],
+                np.concatenate(
+                    (np.expand_dims(batch_label[b, batch_smpw[b, :] > 0], 1), np.expand_dims(pred_val[b, batch_smpw[b, :] > 0], 1)),
+                    axis=1
+                ),
+                res=0.02)
+            total_correct_vox += np.sum((uvlabel[:, 0] == uvlabel[:, 1]) & (uvlabel[:, 0] > 0))
+            total_seen_vox += np.sum(uvlabel[:, 0] > 0)
+            tmp, _ = np.histogram(uvlabel[:, 0], range(FLAGS.num_classes+1))
+            labelweights_vox += tmp
+            for l in range(FLAGS.num_classes):
+                total_seen_class_vox[l] += np.sum(uvlabel[:, 0] == l)
+                total_correct_class_vox[l] += np.sum((uvlabel[:, 0] == l) & (uvlabel[:, 1] == l))
+
+    log_string('eval whole scene mean loss: %f' % (loss_sum / float(num_batches)))
+    log_string('eval whole scene point accuracy vox: %f'% (total_correct_vox / float(total_seen_vox)))
+    log_string('eval whole scene point avg class acc vox: %f' % (np.mean(np.array(total_correct_class_vox[1:])/(np.array(total_seen_class_vox[1:],dtype=np.float)+1e-6))))
+    log_string('eval whole scene point accuracy: %f'% (total_correct / float(total_seen)))
+    log_string('eval whole scene point avg class acc: %f' % (np.mean(np.array(total_correct_class[1:])/(np.array(total_seen_class[1:],dtype=np.float)+1e-6))))
+    labelweights = labelweights[1:].astype(np.float32)/np.sum(labelweights[1:].astype(np.float32))
+    labelweights_vox = labelweights_vox[1:].astype(np.float32)/np.sum(labelweights_vox[1:].astype(np.float32))
+    caliweights = np.ones(FLAGS.num_classes)  # np.array([0.388,0.357,0.038,0.033,0.017,0.02,0.016,0.025,0.002,0.002,0.002,0.007,0.006,0.022,0.004,0.0004,0.003,0.002,0.024,0.029])
+    caliacc = np.average(np.array(total_correct_class_vox[1:])/(np.array(total_seen_class_vox[1:],dtype=np.float)+1e-6),weights=caliweights)
+    log_string('eval whole scene point calibrated average acc vox: %f' % caliacc)
+
+    per_class_str = 'vox based --------'
+    for l in range(1,FLAGS.num_classes):
+        per_class_str += 'class %d weight: %f, acc: %f; ' % (l,labelweights_vox[l-1],total_correct_class_vox[l]/float(total_seen_class_vox[l]))
+    log_string(per_class_str)
+    EPOCH_CNT += 1
+    return caliacc
 
 
 if __name__ == "__main__":
