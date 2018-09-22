@@ -23,7 +23,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--gpu', type=int, default=1, help='GPU to use [default: GPU 1]')
 parser.add_argument('--model', default='pointnet2_sem_seg', help='Model name [default: pointnet2_sem_seg.py]')
 parser.add_argument('--dataset', default='s3dis', choices=['scannet', 's3dis'], help='Dataset name [default: s3dis]')
-parser.add_argument('--num_classes', default=12, help='Number of classes')
+parser.add_argument('--num_classes', default=13, help='Number of classes')
 parser.add_argument('--log_dir', default='log', help='Log dir [default: log]')
 parser.add_argument('--num_point', type=int, default=8192, help='Point Number [default: 8192]')
 parser.add_argument('--max_epoch', type=int, default=201, help='Epoch to run [default: 201]')
@@ -198,10 +198,11 @@ def get_batch_wdp(dataset, idxs, start_idx, end_idx):
             try:
                 ps,seg,smpw = dataset[(data_idx, view_idx)]
                 break
-            except:
+            except Exception as e:
                 old_data_idx, old_view_idx = data_idx, view_idx
                 data_idx = np.random.randint(len(dataset))
                 view_idx = np.random.randint(8)
+                print(e)
                 print('Data-{} from view-{} is invalid. Instead, use data-{} from view-{}'.format(old_data_idx, old_view_idx, data_idx, view_idx))
                 
         batch_data[i,...] = ps
@@ -345,7 +346,7 @@ def eval_one_epoch(sess, ops, test_writer):
     caliweights = np.ones(FLAGS.num_classes) #  np.array([0.388,0.357,0.038,0.033,0.017,0.02,0.016,0.025,0.002,0.002,0.002,0.007,0.006,0.022,0.004,0.0004,0.003,0.002,0.024,0.029])
     log_string('eval point calibrated average acc: %f' % (np.average(np.array(total_correct_class)/(np.array(total_seen_class,dtype=np.float)+1e-6),weights=caliweights)))
     per_class_str = 'vox based --------'
-    for l in range(1,FLAGS.num_classes):
+    for l in range(FLAGS.num_classes):
         per_class_str += 'class %d weight: %f, acc: %f; ' % (l,labelweights_vox[l],total_correct_class[l]/float(total_seen_class[l]))
     log_string(per_class_str)
     EPOCH_CNT += 1
