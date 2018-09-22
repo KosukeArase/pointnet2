@@ -8,6 +8,7 @@ import os
 import sys
 import itertools
 import random
+import joblib
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(BASE_DIR)
@@ -194,77 +195,89 @@ def train():
 
 
 def get_batch_wdp(dataset, idxs, start_idx, end_idx):
-    bsize = end_idx-start_idx
-    batch_data = np.zeros((bsize, NUM_POINT, 3))
-    batch_label = np.zeros((bsize, NUM_POINT), dtype=np.int32)
-    batch_smpw = np.zeros((bsize, NUM_POINT), dtype=np.float32)
-    for i in range(bsize):
-        idx = idxs[i+start_idx]
+    def process(_idx, _dataset):
+        """
         while True:
             try:
-                ps, seg, smpw = dataset[idx]
+                _ps, _seg, _smpw = _dataset[_idx]
                 break
             except Exception as e:
                 print(e)
                 if FLAGS.whole:
-                    old_idx = idx
-                    idx = np.random.randint(len(dataset))
-                    print('Data-{} is invalid. Instead, use data-{}'.format(old_idx, idx))
+                    _old_idx = _idx
+                    _idx = np.random.randint(len(_dataset))
+                    print('Data-{} is invalid. Instead, use data-{}'.format(_old_idx, _idx))
                 else:
-                    old_data_idx, old_view_idx = idx
-                    data_idx = np.random.randint(len(dataset))
-                    view_idx = np.random.randint(8)
-                    idx = (data_idx, view_idx)
-                    print('Data-{} from view-{} is invalid. Instead, use data-{} from view-{}'.format(old_data_idx, old_view_idx, data_idx, view_idx))
+                    _old_data_idx, old_view_idx = _idx
+                    _data_idx = np.random.randint(len(_dataset))
+                    _view_idx = np.random.randint(8)
+                    _idx = (_data_idx, _view_idx)
+                    print('Data-{} from view-{} is invalid. Instead, use data-{} from view-{}'.format(_old_data_idx, _old_view_idx, _data_idx, _view_idx))
+        """
+        _ps, _seg, _smpw = _dataset[_idx]
 
-        batch_data[i,...] = ps
-        batch_label[i,:] = seg
-        batch_smpw[i,:] = smpw
+        _dropout_ratio = np.random.random()*0.875 # 0-0.875
+        _drop_idx = np.where(np.random.random((_ps.shape[0]))<=_dropout_ratio)[0]
+        _ps[_drop_idx,:] = 0
+        _seg[_drop_idx] = 0
+        _smpw[_drop_idx] = 0
 
-        dropout_ratio = np.random.random()*0.875 # 0-0.875
-        drop_idx = np.where(np.random.random((ps.shape[0]))<=dropout_ratio)[0]
-        batch_data[i,drop_idx,:] = batch_data[i,0,:]
-        batch_label[i,drop_idx] = batch_label[i,0]
-        batch_smpw[i,drop_idx] *= 0
+        return _ps, _seg, _smpw
+
+    bsize = end_idx-start_idx
+    results = joblib.Parallel(n_jobs=16)([joblib.delayed(process)(idxs[i+start_idx], dataset) for i in range(bsize)])
+    batch_data = np.array([ps for ps, _, _ in results])
+    batch_label = np.array([seg for _, seg, _ in results])
+    batch_smpw = np.array([smpw for _, _, smpw in results])
+        
     return batch_data, batch_label, batch_smpw
 
 
 def get_batch(dataset, idxs, start_idx, end_idx):
-    bsize = end_idx-start_idx
-    batch_data = np.zeros((bsize, NUM_POINT, 3))
-    batch_label = np.zeros((bsize, NUM_POINT), dtype=np.int32)
-    batch_smpw = np.zeros((bsize, NUM_POINT), dtype=np.float32)
-    for i in range(bsize):
-        idx = idxs[i+start_idx]
+    # bsize = end_idx-start_idx
+    # batch_data = np.zeros((bsize, NUM_POINT, 3))
+    # batch_label = np.zeros((bsize, NUM_POINT), dtype=np.int32)
+    # batch_smpw = np.zeros((bsize, NUM_POINT), dtype=np.float32)
+    # for i in range(bsize):
+    def process(_idx, _dataset):
+        # idx = idxs[i+start_idx]
         if not FLAGS.whole:
-            idx = (idx, random.randint(0, 7))
+            _idx = (_idx, random.randint(0, 7))
         while True:
             try:
-                ps, seg, smpw = dataset[idx]
+                _ps, _seg, _smpw = _dataset[_idx]
                 break
             except Exception as e:
                 print(e)
                 if FLAGS.whole:
-                    old_idx = idx
-                    idx = np.random.randint(len(dataset))
-                    print('Data-{} is invalid. Instead, use data-{}'.format(old_idx, idx))
+                    _old_idx = _idx
+                    _idx = np.random.randint(len(_dataset))
+                    print('Data-{} is invalid. Instead, use data-{}'.format(old_idx, _idx))
                 else:
-                    old_data_idx, old_view_idx = idx
-                    data_idx = np.random.randint(len(dataset))
-                    view_idx = np.random.randint(8)
-                    idx = (data_idx, view_idx)
-                    print('Data-{} from view-{} is invalid. Instead, use data-{} from view-{}'.format(old_data_idx, old_view_idx, data_idx, view_idx))
+                    _old_data_idx, _old_view_idx = _idx
+                    _data_idx = np.random.randint(len(_dataset))
+                    _view_idx = np.random.randint(8)
+                    _idx = (_data_idx, _view_idx)
+                    print('Data-{} from view-{} is invalid. Instead, use data-{} from view-{}'.format(_old_data_idx, _old_view_idx, _data_idx, _view_idx))
 
-        batch_data[i,...] = ps
-        batch_label[i,:] = seg
-        batch_smpw[i,:] = smpw
+        return _ps, _seg, _smpw
+        # batch_data[i,...] = ps
+        # batch_label[i,:] = seg
+        # batch_smpw[i,:] = smpw
+
+    bsize = end_idx-start_idx
+    results = joblib.Parallel(n_jobs=16)([joblib.delayed(process)(idxs[i+start_idx], dataset) for i in range(bsize)])
+    batch_data = np.array([ps for ps, _, _ in results])
+    batch_label = np.array([seg for _, seg, _ in results])
+    batch_smpw = np.array([smpw for _, _, smpw in results])
+
     return batch_data, batch_label, batch_smpw
 
 
 def train_one_epoch(sess, ops, train_writer):
     """ ops: dict mapping from string to tf ops """
     is_training = True
-
+    import time
     # Shuffle train samples
     if FLAGS.whole:
         train_idxs = np.arange(0, len(TRAIN_DATASET))
@@ -281,7 +294,10 @@ def train_one_epoch(sess, ops, train_writer):
     for batch_idx in range(num_batches):
         start_idx = batch_idx * BATCH_SIZE
         end_idx = (batch_idx+1) * BATCH_SIZE
+        s = time.time()
+        print("start get batch")
         batch_data, batch_label, batch_smpw = get_batch_wdp(TRAIN_DATASET, train_idxs, start_idx, end_idx)
+        print("end get batch", time.time() - s)
         # Augment batched point clouds by rotation
         aug_data = provider.rotate_point_cloud(batch_data)
         feed_dict = {ops['pointclouds_pl']: aug_data,
