@@ -206,7 +206,7 @@ def get_batch_wdp(dataset, idxs, start_idx, end_idx):
                 break
             except Exception as e:
                 print(e)
-                if whole:
+                if FLAGS.whole:
                     old_idx = idx
                     idx = np.random.randint(len(dataset))
                     print('Data-{} is invalid. Instead, use data-{}'.format(old_idx, idx))
@@ -236,7 +236,7 @@ def get_batch(dataset, idxs, start_idx, end_idx):
     batch_smpw = np.zeros((bsize, NUM_POINT), dtype=np.float32)
     for i in range(bsize):
         idx = idxs[i+start_idx]
-        if not whole:
+        if not FLAGS.whole:
             idx = (idx, random.randint(0, 7))
         while True:
             try:
@@ -244,7 +244,7 @@ def get_batch(dataset, idxs, start_idx, end_idx):
                 break
             except Exception as e:
                 print(e)
-                if whole:
+                if FLAGS.whole:
                     old_idx = idx
                     idx = np.random.randint(len(dataset))
                     print('Data-{} is invalid. Instead, use data-{}'.format(old_idx, idx))
