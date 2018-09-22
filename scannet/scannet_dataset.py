@@ -121,7 +121,7 @@ class ScannetDatasetWholeScene():
 
 
 class ScannetDatasetVirtualScan():
-    def __init__(self, root, npoints=8192, split='train', dataset='scannet'):
+    def __init__(self, root, npoints=8192, split='train', dataset='s3dis', num_classes=13):
         self.npoints = npoints
         self.root = root
         self.split = split
@@ -131,15 +131,15 @@ class ScannetDatasetVirtualScan():
             self.scene_points_list = pickle.load(fp)
             self.semantic_labels_list = pickle.load(fp)
         if split=='train':
-            labelweights = np.zeros(21)
+            labelweights = np.zeros(num_classes)
             for seg in self.semantic_labels_list:
-                tmp,_ = np.histogram(seg,range(22))
+                tmp,_ = np.histogram(seg,range(num_classes+1))
                 labelweights += tmp
             labelweights = labelweights.astype(np.float32)
             labelweights = labelweights/np.sum(labelweights)
             self.labelweights = 1/np.log(1.2+labelweights)
         elif split=='test':
-            self.labelweights = np.ones(21)
+            self.labelweights = np.ones(num_classes)
 
         if os.path.exists(self.smpidx_filename):
             print('Load indexes for virtual scan.')
@@ -235,19 +235,3 @@ class ScannetDatasetVirtualScan():
 
     def __len__(self):
         return len(self.scene_points_list)
-
-
-if __name__=='__main__':
-    d = ScannetDatasetWholeScene(root = './data', split='test', npoints=8192)
-    labelweights_vox = np.zeros(21)
-    for ii in xrange(len(d)):
-        print ii
-        ps,seg,smpw = d[ii]
-        for b in xrange(ps.shape[0]):
-            _, uvlabel, _ = pc_util.point_cloud_label_to_surface_voxel_label_fast(ps[b,smpw[b,:]>0,:], seg[b,smpw[b,:]>0], res=0.02)
-            tmp,_ = np.histogram(uvlabel,range(22))
-            labelweights_vox += tmp
-    print labelweights_vox[1:].astype(np.float32)/np.sum(labelweights_vox[1:].astype(np.float32))
-    exit()
-
-
