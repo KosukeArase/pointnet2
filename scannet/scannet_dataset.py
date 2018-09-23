@@ -9,6 +9,7 @@ class ScannetDataset():
         self.npoints = npoints
         self.root = root
         self.split = split
+        self.num_classes = num_classes
         self.data_filename = os.path.join(self.root, '{}_{}.pickle'.format(dataset, split))
         self.border_filename = os.path.join(self.root, '{}_border.pkl'.format(split))
         self.data_length = 0
@@ -91,6 +92,7 @@ class ScannetDatasetWholeScene():
         self.npoints = npoints
         self.root = root
         self.split = split
+        self.num_classes = num_classes
         self.data_filename = os.path.join(self.root, '{}_{}.pickle'.format(dataset, split))
         self.border_filename = os.path.join(self.root, '{}_border.pkl'.format(split))
         self.data_length = 0
@@ -177,6 +179,7 @@ class ScannetDatasetVirtualScan():
         self.npoints = npoints
         self.root = root
         self.split = split
+        self.num_classes = num_classes
         self.data_filename = os.path.join(self.root, '{}_{}.pickle'.format(dataset, split))
         self.border_filename = os.path.join(self.root, '{}_border.pkl'.format(split))
         self.smpidx_filename = os.path.join(self.root, '{}_{}_smpidx.pickle'.format(dataset, split))

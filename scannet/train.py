@@ -109,9 +109,11 @@ def get_bn_decay(batch):
 
 
 def train():
+    print("Start loading data")
     train_dataset = TRAIN_DATASET.load_data()
     test_dataset = TEST_DATASET.load_data()
     test_dataset_whole_scene = TEST_DATASET_WHOLE_SCENE.load_data()
+    print("Finish loading data")
     with tf.Graph().as_default():
         with tf.device('/gpu:'+str(GPU_INDEX)):
             pointclouds_pl, labels_pl, borders_pl, smpws_pl = MODEL.placeholder_inputs(BATCH_SIZE, NUM_POINT)
@@ -187,7 +189,6 @@ def train():
         for epoch in range(MAX_EPOCH):
             log_string('**** EPOCH %03d ****' % (epoch))
             sys.stdout.flush()
-
             train_one_epoch(sess, ops, train_writer, train_dataset)
             if epoch % 5 == 0:
                 acc = eval_one_epoch(sess, ops, test_writer, test_dataset)
@@ -205,7 +206,7 @@ def train():
                 log_string("Model saved in file: %s" % save_path)
 
 
-def get_batch_wdp(dataset, idxs, start_idx, end_idx):
+def get_batch_wdp(dataset, data_methods, idxs, start_idx, end_idx):
     scene_points_list = dataset["scene_points_list"]
     semantic_labels_list = dataset["semantic_labels_list"]
     borders_list = dataset["borders_list"]
@@ -225,7 +226,7 @@ def get_batch_wdp(dataset, idxs, start_idx, end_idx):
                     scene_point = scene_points_list[idx].copy()
                     semantic_label = semantic_labels_list[idx].copy()
                     borders = borders_list[idx].copy()
-                    ps, seg, border, smpw = dataset.sample(scene_point, semantic_label, border)
+                    ps, seg, border, smpw = data_methods.sample(scene_point, semantic_label, borders)
                     break
                 except Exception as e:
                     print(e)
@@ -239,7 +240,7 @@ def get_batch_wdp(dataset, idxs, start_idx, end_idx):
                     semantic_label = semantic_labels_list[data_idx]
                     borders = borders_list[data_idx]
                     smpidx = virtual_smpidx[data_idx][view_idx][0]
-                    ps, seg, border, smpw = dataset.sample(scene_point, semantic_label, border, smpidx, view_idx)
+                    ps, seg, border, smpw = data_methods.sample(scene_point, semantic_label, borders, smpidx, view_idx)
 
                 except Exception as e:
                     print(e)
@@ -263,7 +264,7 @@ def get_batch_wdp(dataset, idxs, start_idx, end_idx):
     return batch_data, batch_label, batch_border, batch_smpw
 
 
-def get_batch(dataset, idxs, start_idx, end_idx):
+def get_batch(dataset, data_methods, idxs, start_idx, end_idx):
     scene_points_list = dataset["scene_points_list"]
     semantic_labels_list = dataset["semantic_labels_list"]
     borders_list = dataset["borders_list"]
@@ -285,7 +286,7 @@ def get_batch(dataset, idxs, start_idx, end_idx):
                     scene_point = scene_points_list[idx].copy()
                     semantic_label = semantic_labels_list[idx].copy()
                     borders = borders_list[idx].copy()
-                    ps, seg, border, smpw = dataset.sample(scene_point, semantic_label, border)
+                    ps, seg, border, smpw = data_methods.sample(scene_point, semantic_label, borders)
                     break
                 except Exception as e:
                     print(e)
@@ -299,7 +300,7 @@ def get_batch(dataset, idxs, start_idx, end_idx):
                     semantic_label = semantic_labels_list[data_idx].copy()
                     borders = borders_list[data_idx].copy()
                     smpidx = virtual_smpidx[data_idx][view_idx][0].copy()
-                    ps, seg, border, smpw = dataset.sample(scene_point, semantic_label, border, smpidx, view_idx)
+                    ps, seg, border, smpw = data_utils.sample(scene_point, semantic_label, borders, smpidx, view_idx)
 
                 except Exception as e:
                     print(e)
@@ -314,6 +315,20 @@ def get_batch(dataset, idxs, start_idx, end_idx):
         batch_border[i, ...] = border
         batch_smpw[i, :] = smpw
     return batch_data, batch_label, batch_border, batch_smpw
+
+
+def get_whole(dataset, data_methods, idx):
+    scene_points_list = dataset["scene_points_list"]
+    semantic_labels_list = dataset["semantic_labels_list"]
+    borders_list = dataset["borders_list"]
+    virtual_smpidx = dataset["virtual_smpidx"]
+
+    scene_point = scene_points_list[idx].copy()
+    semantic_label = semantic_labels_list[idx].copy()
+    borders = borders_list[idx].copy()
+    ps, seg, border, smpw = data_methods.sample(scene_point, semantic_label, borders)
+
+    return ps, seg, border, smpw
 
 
 def train_one_epoch(sess, ops, train_writer, dataset):
@@ -339,7 +354,7 @@ def train_one_epoch(sess, ops, train_writer, dataset):
         print("batch: {}/{}".format(batch_idx, num_batches))
         start_idx = batch_idx * BATCH_SIZE
         end_idx = (batch_idx+1) * BATCH_SIZE
-        batch_data, batch_label, batch_border, batch_smpw = get_batch_wdp(dataset, train_idxs, start_idx, end_idx)
+        batch_data, batch_label, batch_border, batch_smpw = get_batch_wdp(dataset, TRAIN_DATASET, train_idxs, start_idx, end_idx)
         # Augment batched point clouds by rotation
         aug_data = provider.rotate_point_cloud(batch_data)
         feed_dict = {ops['pointclouds_pl']: aug_data,
@@ -403,7 +418,7 @@ def eval_one_epoch(sess, ops, test_writer, dataset):
     for batch_idx in range(num_batches):
         start_idx = batch_idx * BATCH_SIZE
         end_idx = (batch_idx+1) * BATCH_SIZE
-        batch_data, batch_label, batch_border, batch_smpw = get_batch(dataset, test_idxs, start_idx, end_idx)
+        batch_data, batch_label, batch_border, batch_smpw = get_batch(dataset, TEST_DATASET, test_idxs, start_idx, end_idx)
 
         aug_data = provider.rotate_point_cloud(batch_data)
 
@@ -422,7 +437,7 @@ def eval_one_epoch(sess, ops, test_writer, dataset):
         total_correct_cls += correct_class
 
         pred_val_border = np.round(pred_val_border)  # BxN
-        correct_border = np.sum((pred_val_border == batch_border) & (batch_smpw > 0))
+        correct_border = np.sum((pred_val_border == batch_border) & (batch_smpw[..., None] > 0))
         total_correct_border += correct_border
 
         total_seen += np.sum(batch_smpw > 0)
@@ -502,18 +517,18 @@ def eval_whole_scene_one_epoch(sess, ops, test_writer, dataset):
     extra_batch_label = np.zeros((0, NUM_POINT))
     extra_batch_border = np.zeros((0, NUM_POINT, 1))
     extra_batch_smpw = np.zeros((0, NUM_POINT))
-    test_idxs = range(num_batches)
+
     for batch_idx in range(num_batches):
         if not is_continue_batch:
             # batch_data, batch_label, batch_border, batch_smpw = TEST_DATASET_WHOLE_SCENE[batch_idx]
-            batch_data, batch_label, batch_border, batch_smpw = get_batch(dataset, test_idxs, batch_idx, batch_idx+1)
+            batch_data, batch_label, batch_border, batch_smpw = get_whole(dataset, TEST_DATASET_WHOLE_SCENE, batch_idx)
             batch_data = np.concatenate((batch_data, extra_batch_data), axis=0)
             batch_label = np.concatenate((batch_label, extra_batch_label), axis=0)
             batch_border = np.concatenate((batch_border, extra_batch_border), axis=0)
             batch_smpw = np.concatenate((batch_smpw, extra_batch_smpw), axis=0)
         else:
             # batch_data_tmp, batch_label_tmp, batch_border_tmp, batch_smpw_tmp = TEST_DATASET_WHOLE_SCENE[batch_idx]
-            batch_data, batch_label, batch_border, batch_smpw = get_batch(dataset, test_idxs, batch_idx, batch_idx+1)
+            batch_data_tmp, batch_label_tmp, batch_border_tmp, batch_smpw_tmp = get_whole(dataset, TEST_DATASET_WHOLE_SCENE, batch_idx)
             batch_data = np.concatenate((batch_data, batch_data_tmp), axis=0)
             batch_label = np.concatenate((batch_label, batch_label_tmp), axis=0)
             batch_border = np.concatenate((batch_border, batch_border_tmp), axis=0)
@@ -553,7 +568,7 @@ def eval_whole_scene_one_epoch(sess, ops, test_writer, dataset):
         correct_class = np.sum((pred_val_class == batch_label) & (batch_smpw > 0))
         total_correct_cls += correct_class
         pred_val_border = np.round(pred_val_border)  # BxN
-        correct_border = np.sum((pred_val_border == batch_border) & (batch_smpw > 0))
+        correct_border = np.sum((pred_val_border == batch_border) & (batch_smpw[..., None] > 0))
         total_correct_border += correct_border
 
         total_seen += np.sum(batch_smpw > 0)
