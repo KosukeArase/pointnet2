@@ -94,7 +94,7 @@ def get_learning_rate(batch):
                         DECAY_RATE,          # Decay rate.
                         staircase=True)
     learing_rate = tf.maximum(learning_rate, 0.00001) # CLIP THE LEARNING RATE!
-    return learning_rate        
+    return learning_rate
 
 
 def get_bn_decay(batch):
@@ -109,6 +109,9 @@ def get_bn_decay(batch):
 
 
 def train():
+    train_dataset = TRAIN_DATASET.load_data()
+    test_dataset = TEST_DATASET.load_data()
+    test_dataset_whole_scene = TEST_DATASET_WHOLE_SCENE.load_data()
     with tf.Graph().as_default():
         with tf.device('/gpu:'+str(GPU_INDEX)):
             pointclouds_pl, labels_pl, borders_pl, smpws_pl = MODEL.placeholder_inputs(BATCH_SIZE, NUM_POINT)
@@ -185,11 +188,11 @@ def train():
             log_string('**** EPOCH %03d ****' % (epoch))
             sys.stdout.flush()
 
-            train_one_epoch(sess, ops, train_writer)
+            train_one_epoch(sess, ops, train_writer, train_dataset)
             if epoch % 5 == 0:
-                acc = eval_one_epoch(sess, ops, test_writer)
+                acc = eval_one_epoch(sess, ops, test_writer, test_dataset)
                 if FLAGS.whole:
-                    acc = eval_whole_scene_one_epoch(sess, ops, test_writer)
+                    acc = eval_whole_scene_one_epoch(sess, ops, test_writer, test_dataset_whole_scene)
 
             if acc > best_acc:
                 best_acc = acc
@@ -203,24 +206,43 @@ def train():
 
 
 def get_batch_wdp(dataset, idxs, start_idx, end_idx):
+    scene_points_list = dataset["scene_points_list"]
+    semantic_labels_list = dataset["semantic_labels_list"]
+    borders_list = dataset["borders_list"]
+    virtual_smpidx = dataset["virtual_smpidx"]
+
     bsize = end_idx-start_idx
     batch_data = np.zeros((bsize, NUM_POINT, 3))
     batch_label = np.zeros((bsize, NUM_POINT), dtype=np.int32)
     batch_border = np.zeros((bsize, NUM_POINT, 1), dtype=np.int32)
     batch_smpw = np.zeros((bsize, NUM_POINT), dtype=np.float32)
+
     for i in range(bsize):
         idx = idxs[i+start_idx]
         while True:
-            try:
-                ps, seg, border, smpw = dataset[idx]
-                break
-            except Exception as e:
-                print(e)
-                if FLAGS.whole:
+            if FLAGS.whole:
+                try:
+                    scene_point = scene_points_list[idx].copy()
+                    semantic_label = semantic_labels_list[idx].copy()
+                    borders = borders_list[idx].copy()
+                    ps, seg, border, smpw = dataset.sample(scene_point, semantic_label, border)
+                    break
+                except Exception as e:
+                    print(e)
                     old_idx = idx
                     idx = np.random.randint(len(dataset))
                     print('Data-{} is invalid. Instead, use data-{}'.format(old_idx, idx))
-                else:
+            else:
+                try:
+                    data_idx, view_idx = idx
+                    scene_point = scene_points_list[data_idx]
+                    semantic_label = semantic_labels_list[data_idx]
+                    borders = borders_list[data_idx]
+                    smpidx = virtual_smpidx[data_idx][view_idx][0]
+                    ps, seg, border, smpw = dataset.sample(scene_point, semantic_label, border, smpidx, view_idx)
+
+                except Exception as e:
+                    print(e)
                     old_data_idx, old_view_idx = idx
                     data_idx = np.random.randint(len(dataset))
                     view_idx = np.random.randint(8)
@@ -242,26 +264,45 @@ def get_batch_wdp(dataset, idxs, start_idx, end_idx):
 
 
 def get_batch(dataset, idxs, start_idx, end_idx):
+    scene_points_list = dataset["scene_points_list"]
+    semantic_labels_list = dataset["semantic_labels_list"]
+    borders_list = dataset["borders_list"]
+    virtual_smpidx = dataset["virtual_smpidx"]
+
     bsize = end_idx-start_idx
     batch_data = np.zeros((bsize, NUM_POINT, 3))
     batch_label = np.zeros((bsize, NUM_POINT), dtype=np.int32)
     batch_border = np.zeros((bsize, NUM_POINT, 1), dtype=np.int32)
     batch_smpw = np.zeros((bsize, NUM_POINT), dtype=np.float32)
+
     for i in range(bsize):
         idx = idxs[i+start_idx]
         if not FLAGS.whole:
             idx = (idx, random.randint(0, 7))
         while True:
-            try:
-                ps, seg, border, smpw = dataset[idx]
-                break
-            except Exception as e:
-                print(e)
-                if FLAGS.whole:
+            if FLAGS.whole:
+                try:
+                    scene_point = scene_points_list[idx].copy()
+                    semantic_label = semantic_labels_list[idx].copy()
+                    borders = borders_list[idx].copy()
+                    ps, seg, border, smpw = dataset.sample(scene_point, semantic_label, border)
+                    break
+                except Exception as e:
+                    print(e)
                     old_idx = idx
                     idx = np.random.randint(len(dataset))
                     print('Data-{} is invalid. Instead, use data-{}'.format(old_idx, idx))
-                else:
+            else:
+                try:
+                    data_idx, view_idx = idx
+                    scene_point = scene_points_list[data_idx].copy()
+                    semantic_label = semantic_labels_list[data_idx].copy()
+                    borders = borders_list[data_idx].copy()
+                    smpidx = virtual_smpidx[data_idx][view_idx][0].copy()
+                    ps, seg, border, smpw = dataset.sample(scene_point, semantic_label, border, smpidx, view_idx)
+
+                except Exception as e:
+                    print(e)
                     old_data_idx, old_view_idx = idx
                     data_idx = np.random.randint(len(dataset))
                     view_idx = np.random.randint(8)
@@ -275,7 +316,7 @@ def get_batch(dataset, idxs, start_idx, end_idx):
     return batch_data, batch_label, batch_border, batch_smpw
 
 
-def train_one_epoch(sess, ops, train_writer):
+def train_one_epoch(sess, ops, train_writer, dataset):
     """ ops: dict mapping from string to tf ops """
     is_training = True
 
@@ -298,7 +339,7 @@ def train_one_epoch(sess, ops, train_writer):
         print("batch: {}/{}".format(batch_idx, num_batches))
         start_idx = batch_idx * BATCH_SIZE
         end_idx = (batch_idx+1) * BATCH_SIZE
-        batch_data, batch_label, batch_border, batch_smpw = get_batch_wdp(TRAIN_DATASET, train_idxs, start_idx, end_idx)
+        batch_data, batch_label, batch_border, batch_smpw = get_batch_wdp(dataset, train_idxs, start_idx, end_idx)
         # Augment batched point clouds by rotation
         aug_data = provider.rotate_point_cloud(batch_data)
         feed_dict = {ops['pointclouds_pl']: aug_data,
@@ -334,7 +375,7 @@ def train_one_epoch(sess, ops, train_writer):
 
 
 #  evaluate on randomly chopped scenes
-def eval_one_epoch(sess, ops, test_writer):
+def eval_one_epoch(sess, ops, test_writer, dataset):
     """ ops: dict mapping from string to tf ops """
     global EPOCH_CNT
     is_training = False
@@ -362,7 +403,7 @@ def eval_one_epoch(sess, ops, test_writer):
     for batch_idx in range(num_batches):
         start_idx = batch_idx * BATCH_SIZE
         end_idx = (batch_idx+1) * BATCH_SIZE
-        batch_data, batch_label, batch_border, batch_smpw = get_batch(TEST_DATASET, test_idxs, start_idx, end_idx)
+        batch_data, batch_label, batch_border, batch_smpw = get_batch(dataset, test_idxs, start_idx, end_idx)
 
         aug_data = provider.rotate_point_cloud(batch_data)
 
@@ -430,7 +471,7 @@ def eval_one_epoch(sess, ops, test_writer):
 
 
 # evaluate on whole scenes to generate numbers provided in the paper
-def eval_whole_scene_one_epoch(sess, ops, test_writer):
+def eval_whole_scene_one_epoch(sess, ops, test_writer, dataset):
     """ ops: dict mapping from string to tf ops """
     global EPOCH_CNT
     is_training = False
@@ -461,15 +502,18 @@ def eval_whole_scene_one_epoch(sess, ops, test_writer):
     extra_batch_label = np.zeros((0, NUM_POINT))
     extra_batch_border = np.zeros((0, NUM_POINT, 1))
     extra_batch_smpw = np.zeros((0, NUM_POINT))
+    test_idxs = range(num_batches)
     for batch_idx in range(num_batches):
         if not is_continue_batch:
-            batch_data, batch_label, batch_border, batch_smpw = TEST_DATASET_WHOLE_SCENE[batch_idx]
+            # batch_data, batch_label, batch_border, batch_smpw = TEST_DATASET_WHOLE_SCENE[batch_idx]
+            batch_data, batch_label, batch_border, batch_smpw = get_batch(dataset, test_idxs, batch_idx, batch_idx+1)
             batch_data = np.concatenate((batch_data, extra_batch_data), axis=0)
             batch_label = np.concatenate((batch_label, extra_batch_label), axis=0)
             batch_border = np.concatenate((batch_border, extra_batch_border), axis=0)
             batch_smpw = np.concatenate((batch_smpw, extra_batch_smpw), axis=0)
         else:
-            batch_data_tmp, batch_label_tmp, batch_border_tmp, batch_smpw_tmp = TEST_DATASET_WHOLE_SCENE[batch_idx]
+            # batch_data_tmp, batch_label_tmp, batch_border_tmp, batch_smpw_tmp = TEST_DATASET_WHOLE_SCENE[batch_idx]
+            batch_data, batch_label, batch_border, batch_smpw = get_batch(dataset, test_idxs, batch_idx, batch_idx+1)
             batch_data = np.concatenate((batch_data, batch_data_tmp), axis=0)
             batch_label = np.concatenate((batch_label, batch_label_tmp), axis=0)
             batch_border = np.concatenate((batch_border, batch_border_tmp), axis=0)

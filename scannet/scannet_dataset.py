@@ -1,9 +1,8 @@
 import pickle
 import os
-import sys
 import numpy as np
-import pc_util
 import scene_util
+
 
 class ScannetDataset():
     def __init__(self, root, npoints=8192, split='train', dataset='s3dis', num_classes=13):
@@ -12,32 +11,43 @@ class ScannetDataset():
         self.split = split
         self.data_filename = os.path.join(self.root, '{}_{}.pickle'.format(dataset, split))
         self.border_filename = os.path.join(self.root, '{}_border.pkl'.format(split))
+        self.data_length = 0
+
+    def load_data(self):
         with open(self.data_filename, 'rb') as fp:
-            self.scene_points_list = pickle.load(fp)
-            self.semantic_labels_list = pickle.load(fp)
+            scene_points_list = pickle.load(fp)
+            semantic_labels_list = pickle.load(fp)
         with open(self.border_filename, 'rb') as fp:
-            border_list = pickle.load(fp)
-            self.border_list = []
-            for i, border in enumerate(border_list):
-                var = np.zeros([len(self.semantic_labels_list[i]), 1])
+            sparse_borders_list = pickle.load(fp)
+            borders_list = []
+            for i, border in enumerate(sparse_borders_list):
+                var = np.zeros([len(semantic_labels_list[i]), 1])
                 var[border] = 1
-                self.border_list.append(var)
-                
-        if split == 'train':
-            labelweights = np.zeros(num_classes)
-            for seg in self.semantic_labels_list:
-                tmp, _ = np.histogram(seg, range(num_classes+1))
+                borders_list.append(var)
+
+        if self.split == 'train':
+            labelweights = np.zeros(self.num_classes)
+            for seg in semantic_labels_list:
+                tmp, _ = np.histogram(seg, range(self.num_classes+1))
                 labelweights += tmp
             labelweights = labelweights.astype(np.float32)
             labelweights = labelweights/np.sum(labelweights)
             self.labelweights = 1/np.log(1.2+labelweights)
-        elif split == 'test':
-            self.labelweights = np.ones(num_classes)
+        elif self.split == 'test':
+            self.labelweights = np.ones(self.num_classes)
 
-    def __getitem__(self, index):
-        point_set = self.scene_points_list[index]
-        semantic_seg = self.semantic_labels_list[index].astype(np.int32)
-        border = self.border_list[index].astype(np.int32)
+        self.data_length = len(scene_points_list)
+
+        return {
+            "scene_points_list": scene_points_list,
+            "semantic_labels_list": semantic_labels_list,
+            "borders_list": borders_list,
+            "virtual_smpidx": None,
+            }
+
+    def sample(self, point_set, semantic_seg, border):
+        semantic_seg = semantic_seg.astype(np.int32)
+        border = border.astype(np.int32)
         coordmax = np.max(point_set, axis=0)
         coordmin = np.min(point_set, axis=0)
         smpmin = np.maximum(coordmax-[1.5, 1.5, 3.0],  coordmin)
@@ -73,7 +83,7 @@ class ScannetDataset():
         return point_set, semantic_seg, border, sample_weight
 
     def __len__(self):
-        return len(self.scene_points_list)
+        return self.data_length
 
 
 class ScannetDatasetWholeScene():
@@ -83,31 +93,43 @@ class ScannetDatasetWholeScene():
         self.split = split
         self.data_filename = os.path.join(self.root, '{}_{}.pickle'.format(dataset, split))
         self.border_filename = os.path.join(self.root, '{}_border.pkl'.format(split))
+        self.data_length = 0
+
+    def load_data(self):
         with open(self.data_filename, 'rb') as fp:
-            self.scene_points_list = pickle.load(fp)
-            self.semantic_labels_list = pickle.load(fp)
+            scene_points_list = pickle.load(fp)
+            semantic_labels_list = pickle.load(fp)
         with open(self.border_filename, 'rb') as fp:
-            border_list = pickle.load(fp)
-            self.border_list = []
-            for i, border in enumerate(border_list):
-                var = np.zeros([len(self.semantic_labels_list[i]), 1])
+            sparse_borders_list = pickle.load(fp)
+            borders_list = []
+            for i, border in enumerate(sparse_borders_list):
+                var = np.zeros([len(semantic_labels_list[i]), 1])
                 var[border] = 1
-                self.border_list.append(var)
-        if split == 'train':
-            labelweights = np.zeros(num_classes)
-            for seg in self.semantic_labels_list:
-                tmp, _ = np.histogram(seg, range(num_classes+1))
+                borders_list.append(var)
+
+        if self.split == 'train':
+            labelweights = np.zeros(self.num_classes)
+            for seg in semantic_labels_list:
+                tmp, _ = np.histogram(seg, range(self.num_classes+1))
                 labelweights += tmp
             labelweights = labelweights.astype(np.float32)
             labelweights = labelweights/np.sum(labelweights)
             self.labelweights = 1/np.log(1.2+labelweights)
-        elif split == 'test':
-            self.labelweights = np.ones(num_classes)
+        elif self.split == 'test':
+            self.labelweights = np.ones(self.num_classes)
 
-    def __getitem__(self, index):
-        point_set_ini = self.scene_points_list[index]
-        semantic_seg_ini = self.semantic_labels_list[index].astype(np.int32)
-        border_ini = self.border_list[index].astype(np.int32)
+        self.data_length = len(scene_points_list)
+
+        return {
+            "scene_points_list": scene_points_list,
+            "semantic_labels_list": semantic_labels_list,
+            "borders_list": borders_list,
+            "virtual_smpidx": None,
+            }
+
+    def sample(self, point_set_ini, semantic_seg_ini, border_ini):
+        semantic_seg_ini = semantic_seg_ini.astype(np.int32)
+        border_ini = border_ini.astype(np.int32)
         coordmax = np.max(point_set_ini, axis=0)
         coordmin = np.min(point_set_ini, axis=0)
         nsubvolume_x = np.ceil((coordmax[0]-coordmin[0])/1.5).astype(np.int32)
@@ -147,7 +169,7 @@ class ScannetDatasetWholeScene():
         return point_sets, semantic_segs, borders, sample_weights
 
     def __len__(self):
-        return len(self.scene_points_list)
+        return self.data_length
 
 
 class ScannetDatasetVirtualScan():
@@ -158,35 +180,48 @@ class ScannetDatasetVirtualScan():
         self.data_filename = os.path.join(self.root, '{}_{}.pickle'.format(dataset, split))
         self.border_filename = os.path.join(self.root, '{}_border.pkl'.format(split))
         self.smpidx_filename = os.path.join(self.root, '{}_{}_smpidx.pickle'.format(dataset, split))
-        with open(self.data_filename,'rb') as fp:
-            self.scene_points_list = pickle.load(fp)
-            self.semantic_labels_list = pickle.load(fp)
+        self.data_length = 0
+
+    def load_data(self):
+        with open(self.data_filename, 'rb') as fp:
+            scene_points_list = pickle.load(fp)
+            semantic_labels_list = pickle.load(fp)
         with open(self.border_filename, 'rb') as fp:
-            border_list = pickle.load(fp)
-            self.border_list = []
-            for i, border in enumerate(border_list):
-                var = np.zeros([len(self.semantic_labels_list[i]), 1])
+            sparse_borders_list = pickle.load(fp)
+            borders_list = []
+            for i, border in enumerate(sparse_borders_list):
+                var = np.zeros([len(semantic_labels_list[i]), 1])
                 var[border] = 1
-                self.border_list.append(var)
-        if split=='train':
-            labelweights = np.zeros(num_classes)
-            for seg in self.semantic_labels_list:
-                tmp,_ = np.histogram(seg,range(num_classes+1))
+                borders_list.append(var)
+
+        if self.split == 'train':
+            labelweights = np.zeros(self.num_classes)
+            for seg in semantic_labels_list:
+                tmp, _ = np.histogram(seg, range(self.num_classes+1))
                 labelweights += tmp
             labelweights = labelweights.astype(np.float32)
             labelweights = labelweights/np.sum(labelweights)
             self.labelweights = 1/np.log(1.2+labelweights)
-        elif split=='test':
-            self.labelweights = np.ones(num_classes)
+        elif self.split == 'test':
+            self.labelweights = np.ones(self.num_classes)
+
+        self.data_length = len(scene_points_list)
 
         if os.path.exists(self.smpidx_filename):
             print('Load indexes for virtual scan.')
             with open(self.smpidx_filename, 'rb') as fp:
-                self.virtual_smpidx = pickle.load(fp)
+                virtual_smpidx = pickle.load(fp)
         else:
             print('Start creating indexes for virtual scan.')
-            self.virtual_smpidx = self.__create_smpidx()
+            virtual_smpidx = self.__create_smpidx()
             print('End creating indexes for virtual scan.')
+
+        return {
+            "scene_points_list": scene_points_list,
+            "semantic_labels_list": semantic_labels_list,
+            "borders_list": borders_list,
+            "virtual_smpidx": virtual_smpidx,
+            }
 
     def __create_smpidx(self):
         virtual_smpidx = list()
@@ -225,18 +260,14 @@ class ScannetDatasetVirtualScan():
         M = (np.outer(V, V) - np.eye(3)).dot(R)
         return M
 
-    def __getitem__(self, inds):
-        data_ind, view_ind = inds
-        point_set_ini = self.scene_points_list[data_ind]
-        semantic_seg_ini = self.semantic_labels_list[data_ind].astype(np.int32)
-        border_ini = self.border_list[data_ind].astype(np.int32)
+
+    def sample(self, point_set_ini, semantic_seg_ini, border_ini, smpidx, view_ind):
+        semantic_seg_ini = semantic_seg_ini.astype(np.int32)
+        border_ini = border_ini.astype(np.int32)
         sample_weight_ini = self.labelweights[semantic_seg_ini]
+        xyz = point_set_ini.copy()
 
-        assert len(self.virtual_smpidx[data_ind]) == 8
-
-        smpidx = self.virtual_smpidx[data_ind][view_ind][0]
-        if len(smpidx) < (self.npoints/4.):
-            raise ValueError('Data-{} from view-{} is invalid.'.format(data_ind, view_ind))
+        assert len(smpidx) > (self.npoints/4.)
 
         point_set = point_set_ini[smpidx,:]
         semantic_seg = semantic_seg_ini[smpidx]
@@ -249,7 +280,6 @@ class ScannetDatasetVirtualScan():
         border = border[choice] # N
         sample_weight = sample_weight[choice] # N
 
-        xyz = self.scene_points_list[data_ind]
         camloc = np.mean(xyz,axis=0)
         camloc[2] = 1.5
         view_dr = np.array([np.pi/4.*view_ind, 0])
@@ -261,18 +291,5 @@ class ScannetDatasetVirtualScan():
 
         return rotated, semantic_seg, border, sample_weight
 
-    # def get_batch(root, npoints=8192, split='train', whole=False):
-    #     dataset = tf.data.Dataset.from_tensor_slices((self.scene_points_list, self.semantic_labels_list, self.smpidx)) # dataset
-    #     dataset = dataset.repeat()
-    #     dataset = dataset.shuffle(1000)
-    #     dataset = dataset.map(virtual_scan, num_parallel_calls=num_threads).prefetch(batch_size*3) # augment
-    #     dataset = dataset.batch(batch_size)
-    #     dataset = dataset.shuffle(batch_size*3)
-    #     iterator = tf.data.Iterator.from_structure(dataset.output_types, dataset.output_shapes)
-    #     next_element = iterator.get_next()
-    #     init_op = iterator.make_initializer(dataset)
-
-    #     return next_element, init_op
-
     def __len__(self):
-        return len(self.scene_points_list)
+        return self.data_length
