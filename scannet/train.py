@@ -422,7 +422,7 @@ def eval_one_epoch(sess, ops, test_writer, dataset):
         total_correct_cls += correct_class
 
         pred_val_border = np.round(pred_val_border)  # BxN
-        correct_border = np.sum(pred_val_border == batch_border)
+        correct_border = np.sum((pred_val_border == batch_border) & (batch_smpw > 0))
         total_correct_border += correct_border
 
         total_seen += np.sum(batch_smpw > 0)
@@ -553,7 +553,7 @@ def eval_whole_scene_one_epoch(sess, ops, test_writer, dataset):
         correct_class = np.sum((pred_val_class == batch_label) & (batch_smpw > 0))
         total_correct_cls += correct_class
         pred_val_border = np.round(pred_val_border)  # BxN
-        correct_border = np.sum(pred_val_border == batch_border)
+        correct_border = np.sum((pred_val_border == batch_border) & (batch_smpw > 0))
         total_correct_border += correct_border
 
         total_seen += np.sum(batch_smpw > 0)
