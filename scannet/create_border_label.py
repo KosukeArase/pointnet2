@@ -54,13 +54,16 @@ def create_pkl(output_dir, data_type):
     borders = []
 
     for i, d in enumerate(dirs): # for scene
-        print('{}/{}'.format(i, len(dirs)))
+        print('{}/{}'.format(i, len(dirs)), d)
         # d = '/data/unagi0/dataset/S3DIS/Stanford3dDataset_v1.2_Aligned_Version/Area_1/office_20/'
 
         data_path = os.path.join(d, "Annotations")
         files = glob.glob(os.path.join(data_path, "*txt"))
         pcs = []
         for file in files:
+            class_name = file.split("/")[-1].split("_")[0]
+            if not class_name in class_names:
+                continue
             with open(file, "r") as f:
                 lines = f.readlines()
             pc = np.array([list(map(float, line.split()[:3])) for line in lines])

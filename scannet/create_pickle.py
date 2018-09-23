@@ -22,7 +22,7 @@ def create_pkl(output_file, data_type):
     colors = []
 
     for i, d in enumerate(dirs): # for scene
-        print('{}/{}'.format(i, len(dirs)))
+        print('{}/{}'.format(i, len(dirs)), d)
         # d = '/data/unagi0/dataset/S3DIS/Stanford3dDataset_v1.2_Aligned_Version/Area_1/office_20/'
         scene_name = '_'.join(d.split('Stanford3dDataset_v1.2_Aligned_Version/')[-1].split('/')[:-1]) # Area_6_office_25
         file_template = os.path.join(d, 'Annotations', '{}_*.txt')

@@ -111,9 +111,9 @@ def get_bn_decay(batch):
 def train():
     with tf.Graph().as_default():
         with tf.device('/gpu:'+str(GPU_INDEX)):
-            pointclouds_pl, labels_pl, smpws_pl = MODEL.placeholder_inputs(BATCH_SIZE, NUM_POINT)
+            pointclouds_pl, labels_pl, borders_pl, smpws_pl = MODEL.placeholder_inputs(BATCH_SIZE, NUM_POINT)
             is_training_pl = tf.placeholder(tf.bool, shape=())
-            
+
             # Note the global_step=batch parameter to minimize. 
             # That tells the optimizer to helpfully increment the 'batch' parameter for you every time it trains.
             batch = tf.Variable(0)
@@ -122,13 +122,17 @@ def train():
 
             print "--- Get model and loss"
             # Get model and loss 
-            pred, end_points = MODEL.get_model(pointclouds_pl, is_training_pl, FLAGS.num_classes, bn_decay=bn_decay)
-            loss = MODEL.get_loss(pred, labels_pl, smpws_pl)
+            pred_class, pred_border, end_points = MODEL.get_model(pointclouds_pl, is_training_pl, FLAGS.num_classes, bn_decay=bn_decay)
+            loss = MODEL.get_loss(pred_class, pred_border, labels_pl, borders_pl, smpws_pl)
             tf.summary.scalar('loss', loss)
 
-            correct = tf.equal(tf.argmax(pred, 2), tf.to_int64(labels_pl))
-            accuracy = tf.reduce_sum(tf.cast(correct, tf.float32)) / float(BATCH_SIZE*NUM_POINT)
-            tf.summary.scalar('accuracy', accuracy)
+            correct_class = tf.equal(tf.argmax(pred_class, 2), tf.to_int64(labels_pl))
+            accuracy_class = tf.reduce_sum(tf.cast(correct_class, tf.float32)) / float(BATCH_SIZE*NUM_POINT)
+            tf.summary.scalar('accuracy class', accuracy_class)
+
+            correct_border = tf.equal(tf.argmax(pred_border, 2), tf.to_int64(border_pl))
+            accuracy_border = tf.reduce_sum(tf.cast(correct_border, tf.float32)) / float(BATCH_SIZE*NUM_POINT)
+            tf.summary.scalar('accuracy border', accuracy_border)
 
             print "--- Get training operator"
             # Get training operator
@@ -162,9 +166,11 @@ def train():
 
         ops = {'pointclouds_pl': pointclouds_pl,
                'labels_pl': labels_pl,
+               'border_pl': border_pl,
                'smpws_pl': smpws_pl,
                'is_training_pl': is_training_pl,
-               'pred': pred,
+               'pred_class': pred_class,
+               'pred_border': pred_border,
                'loss': loss,
                'train_op': train_op,
                'merged': merged,
@@ -275,32 +281,39 @@ def train_one_epoch(sess, ops, train_writer):
 
     log_string(str(datetime.now()))
 
-    total_correct = 0
+    total_correct_class = 0
+    total_correct_boerder = 0
     total_seen = 0
     loss_sum = 0
     for batch_idx in range(num_batches):
         start_idx = batch_idx * BATCH_SIZE
         end_idx = (batch_idx+1) * BATCH_SIZE
-        batch_data, batch_label, batch_smpw = get_batch_wdp(TRAIN_DATASET, train_idxs, start_idx, end_idx)
+        batch_data, batch_label, batch_border, batch_smpw = get_batch_wdp(TRAIN_DATASET, train_idxs, start_idx, end_idx)
         # Augment batched point clouds by rotation
         aug_data = provider.rotate_point_cloud(batch_data)
         feed_dict = {ops['pointclouds_pl']: aug_data,
                      ops['labels_pl']: batch_label,
+                     ops['border_pl']: batch_border,
                      ops['smpws_pl']:batch_smpw,
                      ops['is_training_pl']: is_training,}
-        summary, step, _, loss_val, pred_val = sess.run([ops['merged'], ops['step'],
-            ops['train_op'], ops['loss'], ops['pred']], feed_dict=feed_dict)
+        summary, step, _, loss_val, pred_val_class, pred_val_border = sess.run([ops['merged'], ops['step'],
+            ops['train_op'], ops['loss'], ops['pred_class'], ops['pred_border']], feed_dict=feed_dict)
         train_writer.add_summary(summary, step)
-        pred_val = np.argmax(pred_val, 2)
-        correct = np.sum(pred_val == batch_label)
-        total_correct += correct
+        pred_val_class = np.argmax(pred_val_class, 2)
+        pred_val_border = np.argmax(pred_val_border, 2)
+        correct_class = np.sum(pred_val_class == batch_label)
+        correct_border = np.sum(pred_val_border == batch_border)
+        total_correct_class += correct_class
+        total_correct_border += correct_border
         total_seen += (BATCH_SIZE*NUM_POINT)
         loss_sum += loss_val
         if (batch_idx+1)%10 == 0:
             log_string(' -- %03d / %03d --' % (batch_idx+1, num_batches))
             log_string('mean loss: %f' % (loss_sum / 10))
-            log_string('accuracy: %f' % (total_correct / float(total_seen)))
-            total_correct = 0
+            log_string('accuracy class: %f' % (total_correct_class / float(total_seen)))
+            log_string('accuracy border: %f' % (total_correct_border / float(total_seen)))
+            total_correct_class = 0
+            total_correct_border = 0
             total_seen = 0
             loss_sum = 0
 
