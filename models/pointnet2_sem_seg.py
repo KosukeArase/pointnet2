@@ -56,9 +56,9 @@ def get_loss(pred_class, pred_border, label, border, smpw):
         label: BxN, 
 	smpw: BxN """
     classify_loss = tf.nn.sparse_softmax_cross_entropy(labels=label, logits=pred_class, weights=smpw)
-    border_loss = tf.losses.sigmoid_cross_entropy_with_logits(labels=border, logits=pred_border)
+    border_loss = tf.losses.weighted_cross_entropy_with_logits(labels=border, logits=pred_border, pos_weight=5.0)
     tf.summary.scalar('classify loss', classify_loss)
     tf.add_to_collection('losses', classify_loss)
     tf.summary.scalar('border loss', border_loss)
     tf.add_to_collection('losses', border_loss)
-    return classify_loss + border_loss
+    return classify_loss, border_loss

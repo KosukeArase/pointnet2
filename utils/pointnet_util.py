@@ -198,12 +198,12 @@ def pointnet_sa_module_msg(xyz, points, npoint, radius_list, nsample_list, mlp_l
  
 def pointnet_fp_module(xyz1, xyz2, points1, points2, mlp, is_training, bn_decay, scope, bn=True):
     ''' PointNet Feature Propogation (FP) Module
-        Input:                                                                                                      
-            xyz1: (batch_size, ndataset1, 3) TF tensor                                                              
-            xyz2: (batch_size, ndataset2, 3) TF tensor, sparser than xyz1                                           
-            points1: (batch_size, ndataset1, nchannel1) TF tensor                                                   
+        Input:
+            xyz1: (batch_size, ndataset1, 3) TF tensor
+            xyz2: (batch_size, ndataset2, 3) TF tensor, sparser than xyz1
+            points1: (batch_size, ndataset1, nchannel1) TF tensor
             points2: (batch_size, ndataset2, nchannel2) TF tensor
-            mlp: list of int32 -- output size for MLP on each point                                                 
+            mlp: list of int32 -- output size for MLP on each point
         Return:
             new_points: (batch_size, ndataset1, mlp[-1]) TF tensor
     '''
