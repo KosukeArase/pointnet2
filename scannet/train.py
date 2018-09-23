@@ -131,7 +131,7 @@ def train():
             accuracy_class = tf.reduce_sum(tf.cast(correct_class, tf.float32)) / float(BATCH_SIZE*NUM_POINT)
             tf.summary.scalar('accuracy class', accuracy_class)
 
-            correct_border = tf.equal(tf.argmax(pred_border, 2), tf.to_int64(border_pl))
+            correct_border = tf.equal(tf.cast(tf.round(pred_border), dtype=tf.int64), tf.to_int64(borders_pl))
             accuracy_border = tf.reduce_sum(tf.cast(correct_border, tf.float32)) / float(BATCH_SIZE*NUM_POINT)
             tf.summary.scalar('accuracy border', accuracy_border)
 
@@ -167,7 +167,7 @@ def train():
 
         ops = {'pointclouds_pl': pointclouds_pl,
                'labels_pl': labels_pl,
-               'border_pl': border_pl,
+               'borders_pl': borders_pl,
                'smpws_pl': smpws_pl,
                'is_training_pl': is_training_pl,
                'pred_class': pred_class,
@@ -206,7 +206,7 @@ def get_batch_wdp(dataset, idxs, start_idx, end_idx):
     bsize = end_idx-start_idx
     batch_data = np.zeros((bsize, NUM_POINT, 3))
     batch_label = np.zeros((bsize, NUM_POINT), dtype=np.int32)
-    batch_border = np.zeros((bsize, NUM_POINT), dtype=np.int32)
+    batch_border = np.zeros((bsize, NUM_POINT, 1), dtype=np.int32)
     batch_smpw = np.zeros((bsize, NUM_POINT), dtype=np.float32)
     for i in range(bsize):
         idx = idxs[i+start_idx]
@@ -229,7 +229,7 @@ def get_batch_wdp(dataset, idxs, start_idx, end_idx):
 
         batch_data[i, ...] = ps
         batch_label[i, :] = seg
-        batch_border[i, :] = border
+        batch_border[i, ...] = border
         batch_smpw[i, :] = smpw
 
         dropout_ratio = np.random.random()*0.875  # 0-0.875
@@ -245,7 +245,7 @@ def get_batch(dataset, idxs, start_idx, end_idx):
     bsize = end_idx-start_idx
     batch_data = np.zeros((bsize, NUM_POINT, 3))
     batch_label = np.zeros((bsize, NUM_POINT), dtype=np.int32)
-    batch_border = np.zeros((bsize, NUM_POINT), dtype=np.int32)
+    batch_border = np.zeros((bsize, NUM_POINT, 1), dtype=np.int32)
     batch_smpw = np.zeros((bsize, NUM_POINT), dtype=np.float32)
     for i in range(bsize):
         idx = idxs[i+start_idx]
@@ -270,7 +270,7 @@ def get_batch(dataset, idxs, start_idx, end_idx):
 
         batch_data[i, ...] = ps
         batch_label[i, :] = seg
-        batch_border[i, :] = border
+        batch_border[i, ...] = border
         batch_smpw[i, :] = smpw
     return batch_data, batch_label, batch_border, batch_smpw
 
@@ -292,8 +292,10 @@ def train_one_epoch(sess, ops, train_writer):
     total_correct_class = 0
     total_correct_border = 0
     total_seen = 0
-    loss_sum = 0
+    loss_sum_class = 0
+    loss_sum_border = 0
     for batch_idx in range(num_batches):
+        print("batch: {}/{}".format(batch_idx, num_batches))
         start_idx = batch_idx * BATCH_SIZE
         end_idx = (batch_idx+1) * BATCH_SIZE
         batch_data, batch_label, batch_border, batch_smpw = get_batch_wdp(TRAIN_DATASET, train_idxs, start_idx, end_idx)
@@ -301,7 +303,7 @@ def train_one_epoch(sess, ops, train_writer):
         aug_data = provider.rotate_point_cloud(batch_data)
         feed_dict = {ops['pointclouds_pl']: aug_data,
                      ops['labels_pl']: batch_label,
-                     ops['border_pl']: batch_border,
+                     ops['borders_pl']: batch_border,
                      ops['smpws_pl']: batch_smpw,
                      ops['is_training_pl']: is_training,
                      }
@@ -339,7 +341,7 @@ def eval_one_epoch(sess, ops, test_writer):
     test_idxs = np.arange(0, len(TEST_DATASET))
     num_batches = len(TEST_DATASET)/BATCH_SIZE
 
-    total_correct_class = 0
+    total_correct_cls = 0
     total_correct_border = 0
     total_seen = 0
     loss_sum_class = 0
@@ -366,7 +368,7 @@ def eval_one_epoch(sess, ops, test_writer):
 
         feed_dict = {ops['pointclouds_pl']: aug_data,
                      ops['labels_pl']: batch_label,
-                     ops['border_pl']: batch_border,
+                     ops['borders_pl']: batch_border,
                      ops['smpws_pl']: batch_smpw,
                      ops['is_training_pl']: is_training}
         summary, step, loss_val_class, loss_val_border, pred_val_class, pred_val_border = sess.run(
@@ -376,7 +378,7 @@ def eval_one_epoch(sess, ops, test_writer):
 
         pred_val_class = np.argmax(pred_val_class, 2)  # BxN
         correct_class = np.sum((pred_val_class == batch_label) & (batch_smpw > 0))
-        total_correct_class += correct_class
+        total_correct_cls += correct_class
 
         pred_val_border = np.round(pred_val_border)  # BxN
         correct_border = np.sum(pred_val_border == batch_border)
@@ -390,13 +392,13 @@ def eval_one_epoch(sess, ops, test_writer):
 
         for l in range(FLAGS.num_classes):
             total_seen_class[l] += np.sum((batch_label == l) & (batch_smpw > 0))
-            total_correct_class[l] += np.sum((pred_val == l) & (batch_label == l) & (batch_smpw > 0))
+            total_correct_class[l] += np.sum((pred_val_class == l) & (batch_label == l) & (batch_smpw > 0))
 
         for b in xrange(batch_label.shape[0]):
             _, uvlabel, _ = pc_util.point_cloud_label_to_surface_voxel_label_fast(  # Point to voxel index (a point for each voxel)
                 aug_data[b, batch_smpw[b, :] > 0, :],
                 np.concatenate(
-                    (np.expand_dims(batch_label[b, batch_smpw[b, :] > 0], 1), np.expand_dims(pred_val[b, batch_smpw[b, :] > 0], 1)),
+                    (np.expand_dims(batch_label[b, batch_smpw[b, :] > 0], 1), np.expand_dims(pred_val_class[b, batch_smpw[b, :] > 0], 1)),
                     axis=1
                 ),
                 res=0.02
@@ -413,8 +415,8 @@ def eval_one_epoch(sess, ops, test_writer):
     log_string('eval mean loss (border): %f' % (loss_sum_border / float(num_batches)))
     log_string('eval point accuracy vox: %f'% (total_correct_vox / float(total_seen_vox)))
     log_string('eval point avg class acc vox: %f' % (np.mean(np.array(total_correct_class_vox)/(np.array(total_seen_class_vox, dtype=np.float)+1e-6))))
-    log_string('eval point accuracy (class): %f'% (total_correct_class / float(total_seen)))
-    log_string('eval point accuracy (border): %f'% (total_correct_border / float(total_seen)))
+    log_string('eval point accuracy (class): %f'% (float(total_correct_cls) / float(total_seen)))
+    log_string('eval point accuracy (border): %f'% (float(total_correct_border) / float(total_seen)))
     log_string('eval point avg class acc: %f' % (np.mean(np.array(total_correct_class)/(np.array(total_seen_class,dtype=np.float)+1e-6))))
     labelweights_vox = labelweights_vox.astype(np.float32)/np.sum(labelweights_vox.astype(np.float32))
     caliweights = np.ones(FLAGS.num_classes)  # np.array([0.388,0.357,0.038,0.033,0.017,0.02,0.016,0.025,0.002,0.002,0.002,0.007,0.006,0.022,0.004,0.0004,0.003,0.002,0.024,0.029])
@@ -424,7 +426,7 @@ def eval_one_epoch(sess, ops, test_writer):
         per_class_str += 'class %d weight: %f, acc: %f; ' % (l,labelweights_vox[l],total_correct_class[l]/float(total_seen_class[l]))
     log_string(per_class_str)
     EPOCH_CNT += 1
-    return total_correct/float(total_seen)
+    return total_correct_cls/float(total_seen)
 
 
 # evaluate on whole scenes to generate numbers provided in the paper
@@ -435,7 +437,7 @@ def eval_whole_scene_one_epoch(sess, ops, test_writer):
     test_idxs = np.arange(0, len(TEST_DATASET_WHOLE_SCENE))
     num_batches = len(TEST_DATASET_WHOLE_SCENE)
 
-    total_correct_class = 0
+    total_correct_cls = 0
     total_correct_border = 0
     total_seen = 0
     loss_sum_class = 0
@@ -457,7 +459,7 @@ def eval_whole_scene_one_epoch(sess, ops, test_writer):
 
     extra_batch_data = np.zeros((0, NUM_POINT, 3))
     extra_batch_label = np.zeros((0, NUM_POINT))
-    extra_batch_border = np.zeros((0, NUM_POINT))
+    extra_batch_border = np.zeros((0, NUM_POINT, 1))
     extra_batch_smpw = np.zeros((0, NUM_POINT))
     for batch_idx in range(num_batches):
         if not is_continue_batch:
@@ -479,17 +481,17 @@ def eval_whole_scene_one_epoch(sess, ops, test_writer):
             is_continue_batch = False
             extra_batch_data = np.zeros((0, NUM_POINT, 3))
             extra_batch_label = np.zeros((0, NUM_POINT))
-            extra_batch_border = np.zeros((0, NUM_POINT))
+            extra_batch_border = np.zeros((0, NUM_POINT, 1))
             extra_batch_smpw = np.zeros((0, NUM_POINT))
         else:
             is_continue_batch = False
             extra_batch_data = batch_data[BATCH_SIZE:, :, :]
             extra_batch_label = batch_label[BATCH_SIZE:, :]
-            extra_batch_border = batch_border[BATCH_SIZE:, :]
+            extra_batch_border = batch_border[BATCH_SIZE:, :, :]
             extra_batch_smpw = batch_smpw[BATCH_SIZE:, :]
             batch_data = batch_data[:BATCH_SIZE, :, :]
             batch_label = batch_label[:BATCH_SIZE, :]
-            batch_border = batch_border[:BATCH_SIZE, :]
+            batch_border = batch_border[:BATCH_SIZE, :, :]
             batch_smpw = batch_smpw[:BATCH_SIZE, :]
 
         aug_data = batch_data
@@ -505,7 +507,7 @@ def eval_whole_scene_one_epoch(sess, ops, test_writer):
 
         pred_val_class = np.argmax(pred_val_class, 2)  # BxN
         correct_class = np.sum((pred_val_class == batch_label) & (batch_smpw > 0))
-        total_correct_class += correct_class
+        total_correct_cls += correct_class
         pred_val_border = np.round(pred_val_border)  # BxN
         correct_border = np.sum(pred_val_border == batch_border)
         total_correct_border += correct_border
@@ -517,13 +519,13 @@ def eval_whole_scene_one_epoch(sess, ops, test_writer):
         labelweights += tmp
         for l in range(FLAGS.num_classes):
             total_seen_class[l] += np.sum((batch_label == l) & (batch_smpw > 0))
-            total_correct_class[l] += np.sum((pred_val == l) & (batch_label == l) & (batch_smpw > 0))
+            total_correct_class[l] += np.sum((pred_val_class == l) & (batch_label == l) & (batch_smpw > 0))
 
         for b in xrange(batch_label.shape[0]):
             _, uvlabel, _ = pc_util.point_cloud_label_to_surface_voxel_label_fast(
                 aug_data[b, batch_smpw[b, :] > 0, :],
                 np.concatenate(
-                    (np.expand_dims(batch_label[b, batch_smpw[b, :] > 0], 1), np.expand_dims(pred_val[b, batch_smpw[b, :] > 0], 1)),
+                    (np.expand_dims(batch_label[b, batch_smpw[b, :] > 0], 1), np.expand_dims(pred_val_class[b, batch_smpw[b, :] > 0], 1)),
                     axis=1
                 ),
                 res=0.02)
@@ -538,19 +540,19 @@ def eval_whole_scene_one_epoch(sess, ops, test_writer):
     log_string('eval whole scene mean loss (class): %f' % (loss_sum_class / float(num_batches)))
     log_string('eval whole scene mean loss (border): %f' % (loss_sum_border / float(num_batches)))
     log_string('eval whole scene point accuracy vox: %f'% (total_correct_vox / float(total_seen_vox)))
-    log_string('eval whole scene point avg class acc vox: %f' % (np.mean(np.array(total_correct_class_vox[1:])/(np.array(total_seen_class_vox[1:],dtype=np.float)+1e-6))))
-    log_string('eval whole scene point accuracy (class): %f'% (total_correct_class / float(total_seen)))
+    log_string('eval whole scene point avg class acc vox: %f' % (np.mean(np.array(total_correct_class_vox)/(np.array(total_seen_class_vox,dtype=np.float)+1e-6))))
+    log_string('eval whole scene point accuracy (class): %f'% (total_correct_cls / float(total_seen)))
     log_string('eval whole scene point accuracy (border): %f'% (total_correct_border / float(total_seen)))
-    log_string('eval whole scene point avg class acc: %f' % (np.mean(np.array(total_correct_class[1:])/(np.array(total_seen_class[1:],dtype=np.float)+1e-6))))
-    labelweights = labelweights[1:].astype(np.float32)/np.sum(labelweights[1:].astype(np.float32))
-    labelweights_vox = labelweights_vox[1:].astype(np.float32)/np.sum(labelweights_vox[1:].astype(np.float32))
+    log_string('eval whole scene point avg class acc: %f' % (np.mean(np.array(total_correct_class)/(np.array(total_seen_class,dtype=np.float)+1e-6))))
+    labelweights = labelweights.astype(np.float32)/np.sum(labelweights.astype(np.float32))
+    labelweights_vox = labelweights_vox.astype(np.float32)/np.sum(labelweights_vox.astype(np.float32))
     caliweights = np.ones(FLAGS.num_classes)  # np.array([0.388,0.357,0.038,0.033,0.017,0.02,0.016,0.025,0.002,0.002,0.002,0.007,0.006,0.022,0.004,0.0004,0.003,0.002,0.024,0.029])
-    caliacc = np.average(np.array(total_correct_class_vox[1:])/(np.array(total_seen_class_vox[1:],dtype=np.float)+1e-6),weights=caliweights)
+    caliacc = np.average(np.array(total_correct_class_vox)/(np.array(total_seen_class_vox, dtype=np.float)+1e-6),weights=caliweights)
     log_string('eval whole scene point calibrated average acc vox: %f' % caliacc)
 
     per_class_str = 'vox based --------'
-    for l in range(1,FLAGS.num_classes):
-        per_class_str += 'class %d weight: %f, acc: %f; ' % (l,labelweights_vox[l-1],total_correct_class_vox[l]/float(total_seen_class_vox[l]))
+    for l in range(FLAGS.num_classes):
+        per_class_str += 'class %d weight: %f, acc: %f; ' % (l,labelweights_vox[l],total_correct_class_vox[l]/float(total_seen_class_vox[l]))
     log_string(per_class_str)
     EPOCH_CNT += 1
     return caliacc

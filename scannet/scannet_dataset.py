@@ -11,12 +11,18 @@ class ScannetDataset():
         self.root = root
         self.split = split
         self.data_filename = os.path.join(self.root, '{}_{}.pickle'.format(dataset, split))
-        self.border_filename = os.path.join(self.root, '{}_border.pickle'.format(split))
+        self.border_filename = os.path.join(self.root, '{}_border.pkl'.format(split))
         with open(self.data_filename, 'rb') as fp:
             self.scene_points_list = pickle.load(fp)
             self.semantic_labels_list = pickle.load(fp)
         with open(self.border_filename, 'rb') as fp:
-            self.border_list = pickle.load(fp)
+            border_list = pickle.load(fp)
+            self.border_list = []
+            for i, border in enumerate(border_list):
+                var = np.zeros([len(self.semantic_labels_list[i]), 1])
+                var[border] = 1
+                self.border_list.append(var)
+                
         if split == 'train':
             labelweights = np.zeros(num_classes)
             for seg in self.semantic_labels_list:
@@ -76,12 +82,17 @@ class ScannetDatasetWholeScene():
         self.root = root
         self.split = split
         self.data_filename = os.path.join(self.root, '{}_{}.pickle'.format(dataset, split))
-        self.border_filename = os.path.join(self.root, '{}_border.pickle'.format(split))
+        self.border_filename = os.path.join(self.root, '{}_border.pkl'.format(split))
         with open(self.data_filename, 'rb') as fp:
             self.scene_points_list = pickle.load(fp)
             self.semantic_labels_list = pickle.load(fp)
         with open(self.border_filename, 'rb') as fp:
-            self.border_list = pickle.load(fp)
+            border_list = pickle.load(fp)
+            self.border_list = []
+            for i, border in enumerate(border_list):
+                var = np.zeros([len(self.semantic_labels_list[i]), 1])
+                var[border] = 1
+                self.border_list.append(var)
         if split == 'train':
             labelweights = np.zeros(num_classes)
             for seg in self.semantic_labels_list:
@@ -145,13 +156,18 @@ class ScannetDatasetVirtualScan():
         self.root = root
         self.split = split
         self.data_filename = os.path.join(self.root, '{}_{}.pickle'.format(dataset, split))
-        self.border_filename = os.path.join(self.root, '{}_border.pickle'.format(split))
+        self.border_filename = os.path.join(self.root, '{}_border.pkl'.format(split))
         self.smpidx_filename = os.path.join(self.root, '{}_{}_smpidx.pickle'.format(dataset, split))
         with open(self.data_filename,'rb') as fp:
             self.scene_points_list = pickle.load(fp)
             self.semantic_labels_list = pickle.load(fp)
         with open(self.border_filename, 'rb') as fp:
-            self.border_list = pickle.load(fp)
+            border_list = pickle.load(fp)
+            self.border_list = []
+            for i, border in enumerate(border_list):
+                var = np.zeros([len(self.semantic_labels_list[i]), 1])
+                var[border] = 1
+                self.border_list.append(var)
         if split=='train':
             labelweights = np.zeros(num_classes)
             for seg in self.semantic_labels_list:

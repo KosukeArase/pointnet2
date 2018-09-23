@@ -11,7 +11,7 @@ from pointnet_util import pointnet_sa_module, pointnet_fp_module
 def placeholder_inputs(batch_size, num_point):
     pointclouds_pl = tf.placeholder(tf.float32, shape=(batch_size, num_point, 3))
     labels_pl = tf.placeholder(tf.int32, shape=(batch_size, num_point))
-    borders_pl = tf.placeholder(tf.float32, shape=(batch_size, num_point))
+    borders_pl = tf.placeholder(tf.float32, shape=(batch_size, num_point, 1))
     smpws_pl = tf.placeholder(tf.float32, shape=(batch_size, num_point))
 
     return pointclouds_pl, labels_pl, borders_pl, smpws_pl
@@ -39,14 +39,12 @@ def get_model(point_cloud, is_training, num_class, bn_decay=None):
     l0_points = pointnet_fp_module(l0_xyz, l1_xyz, l0_points, l1_points, [128,128,128], is_training, bn_decay, scope='fa_layer4')
 
     # FC layers
-    print("l0_points", l0_points)
     fc1 = tf_util.conv1d(l0_points, 128, 1, padding='VALID', bn=True, is_training=is_training, scope='fc1', bn_decay=bn_decay)
-    print("net", fc1)
     end_points['feats'] = fc1
     fc1 = tf_util.dropout(fc1, keep_prob=0.5, is_training=is_training, scope='dp1')
     fc2_1 = tf_util.conv1d(fc1, num_class, 1, padding='VALID', activation_fn=None, scope='fc2_1')
     fc2_2 = tf_util.conv1d(fc1, 1, 1, padding='VALID', activation_fn=None, scope='fc2_2')
-    print("fc2_1, fc2_2", fc2_1, fc2_2)
+
     return fc2_1, fc2_2, end_points
 
 
@@ -55,10 +53,12 @@ def get_loss(pred_class, pred_border, label, border, smpw):
         pred_border: BxNx1,
         label: BxN, 
 	smpw: BxN """
-    classify_loss = tf.nn.sparse_softmax_cross_entropy(labels=label, logits=pred_class, weights=smpw)
-    border_loss = tf.losses.weighted_cross_entropy_with_logits(labels=border, logits=pred_border, pos_weight=5.0)
+    classify_loss = tf.losses.sparse_softmax_cross_entropy(labels=label, logits=pred_class, weights=smpw)
+    border_loss = tf.reduce_mean(tf.nn.weighted_cross_entropy_with_logits(targets=border, logits=pred_border, pos_weight=5.0))
+
     tf.summary.scalar('classify loss', classify_loss)
     tf.add_to_collection('losses', classify_loss)
     tf.summary.scalar('border loss', border_loss)
     tf.add_to_collection('losses', border_loss)
+
     return classify_loss, border_loss
