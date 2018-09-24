@@ -116,7 +116,8 @@ def train():
     print("Start loading data")
     train_dataset = TRAIN_DATASET.load_data()
     test_dataset = TEST_DATASET.load_data()
-    test_dataset_whole_scene = TEST_DATASET_WHOLE_SCENE.load_data()
+    if FLAGS.whole:
+        test_dataset_whole_scene = TEST_DATASET_WHOLE_SCENE.load_data()
     print("Finish loading data")
     with tf.Graph().as_default():
         with tf.device('/gpu:'+str(GPU_INDEX)):
@@ -210,7 +211,7 @@ def train():
 
 
 # def process(args):
-def process(_idx, _scene_points_list, _semantic_labels_list, _borders_list, _virtual_smpidx, _dataset, _data_methods, _send_end):
+def process(_idx, _scene_points_list, _semantic_labels_list, _borders_list, _virtual_smpidx, _dataset, _data_methods, _is_training, _send_end):
     # _idx, _scene_points_list, _semantic_labels_list, _borders_list, _virtual_smpidx, _dataset, _data_methods = args
     while True:
         if FLAGS.whole:
@@ -226,29 +227,32 @@ def process(_idx, _scene_points_list, _semantic_labels_list, _borders_list, _vir
                 _idx = np.random.randint(len(_dataset))
                 print('Data-{} is invalid. Instead, use data-{}'.format(_old_idx, _idx))
         else:
-            pass
-        """
-                    try:
-                        _data_idx, _view_idx = _idx
-                        _scene_point = scene_points_list[_data_idx]
-                        _semantic_label = semantic_labels_list[_data_idx]
-                        _borders = borders_list[_data_idx]
-                        _smpidx = virtual_smpidx[_data_idx][_view_idx][0]
-                        _ps, _seg, _border, _smpw = _data_methods.sample(_scene_point, _semantic_label, _borders, _smpidx, _view_idx)
-                    except Exception as e:
-                        print(e)
-                        _old_data_idx, _old_view_idx = _idx
-                        _data_idx = np.random.randint(len(_dataset))
-                        _view_idx = np.random.randint(8)
-                        _idx = (_data_idx, _view_idx)
-                        print('Data-{} from view-{} is invalid. Instead, use data-{} from view-{}'.format(_old_data_idx, _old_view_idx, _data_idx, _view_idx))
-        """
-    _dropout_ratio = np.random.random()*0.875  # 0-0.875
-    _drop_idx = np.where(np.random.random((_ps.shape[0])) <= _dropout_ratio)[0]
-    _ps[_drop_idx, :] = _ps[0, :]
-    _seg[_drop_idx] = _seg[0]
-    _border[_drop_idx] = _border[0]
-    _smpw[_drop_idx] *= 0
+            try:
+                _data_idx, _view_idx = _idx
+                _scene_point = scene_points_list[_data_idx]
+                _semantic_label = semantic_labels_list[_data_idx]
+                _borders = borders_list[_data_idx]
+                _smpidx = virtual_smpidx[_data_idx][_view_idx][0]
+                _ps, _seg, _border, _smpw = _data_methods.sample(_scene_point, _semantic_label, _borders, _smpidx, _view_idx)
+            except Exception as e:
+                print(e)
+                _old_data_idx, _old_view_idx = _idx
+                _data_idx = np.random.randint(len(_dataset))
+                _view_idx = np.random.randint(8)
+                _idx = (_data_idx, _view_idx)
+                print('Data-{} from view-{} is invalid. Instead, use data-{} from view-{}'.format(_old_data_idx, _old_view_idx, _data_idx, _view_idx))
+
+    if _is_training == True:
+        _dropout_ratio = np.random.random()*0.875  # 0-0.875
+        _drop_idx = np.where(np.random.random((_ps.shape[0])) <= _dropout_ratio)[0]
+        _ps[_drop_idx, :] = _ps[0, :]
+        _seg[_drop_idx] = _seg[0]
+        _border[_drop_idx] = _border[0]
+        _smpw[_drop_idx] *= 0
+    elif _is_training == False:
+        pass
+    else:
+        raise NotImplementedError("`is_training` for process() must be True or False")
 
     return _send_end.send([_ps, _seg, _border, _smpw])
 
@@ -266,12 +270,21 @@ def get_batch_wdp(dataset, data_methods, idxs, start_idx, end_idx):
 
         # results = joblib.Parallel(n_jobs=2, verbose=10)([joblib.delayed(process)(idxs[i+start_idx]) for i in range(bsize)])
         """
-        p = mp.Pool(processes=4)
-        results = p.map(process, [(idxs[i+start_idx], scene_points_list, semantic_labels_list, borders_list, virtual_smpidx, dataset, data_methods) for i in range(bsize)])
-        p.close()
+        is_training = True
+        pool = mp.Pool(processes=4)
+        results = []
+        for i in range(bsize):
+            res = pool.apply_async(process, (idxs[i+start_idx], scene_points_list, semantic_labels_list, borders_list, virtual_smpidx, dataset, data_methods, is_training))
+            results.append(res)
+        pool.close()
+        pool.join()
         print(results)
+        for res in results:
+            res.get()
         """
-        args_const = [scene_points_list, semantic_labels_list, borders_list, virtual_smpidx, dataset, data_methods]
+        
+        is_training = True
+        args_const = [scene_points_list, semantic_labels_list, borders_list, virtual_smpidx, dataset, data_methods, is_training]
         jobs = []
         pipe_list = []
 
@@ -293,56 +306,72 @@ def get_batch_wdp(dataset, data_methods, idxs, start_idx, end_idx):
 
     return batch_data, batch_label, batch_border, batch_smpw
 
+"""
+# def process(args):
+def process_test(_idx, _scene_points_list, _semantic_labels_list, _borders_list, _virtual_smpidx, _dataset, _data_methods, _send_end):
+    # _idx, _scene_points_list, _semantic_labels_list, _borders_list, _virtual_smpidx, _dataset, _data_methods = args
+    while True:
+        if FLAGS.whole:
+            try:
+                _scene_point = _scene_points_list[_idx].copy()
+                _semantic_label = _semantic_labels_list[_idx].copy()
+                _borders = _borders_list[_idx].copy()
+                _ps, _seg, _border, _smpw = _data_methods.sample(_scene_point, _semantic_label, _borders)
+                break
+            except Exception as e:
+                print(e)
+                _old_idx = _idx
+                _idx = np.random.randint(len(_dataset))
+                print('Data-{} is invalid. Instead, use data-{}'.format(_old_idx, _idx))
+        else:
+            try:
+                _data_idx, _view_idx = _idx
+                _scene_point = scene_points_list[_data_idx]
+                _semantic_label = semantic_labels_list[_data_idx]
+                _borders = borders_list[_data_idx]
+                _smpidx = virtual_smpidx[_data_idx][_view_idx][0]
+                _ps, _seg, _border, _smpw = _data_methods.sample(_scene_point, _semantic_label, _borders, _smpidx, _view_idx)
+            except Exception as e:
+                print(e)
+                _old_data_idx, _old_view_idx = _idx
+                _data_idx = np.random.randint(len(_dataset))
+                _view_idx = np.random.randint(8)
+                _idx = (_data_idx, _view_idx)
+                print('Data-{} from view-{} is invalid. Instead, use data-{} from view-{}'.format(_old_data_idx, _old_view_idx, _data_idx, _view_idx))
+
+    return _send_end.send([_ps, _seg, _border, _smpw])
+"""
 
 def get_batch(dataset, data_methods, idxs, start_idx, end_idx):
     bsize = end_idx-start_idx
-    scene_points_list = dataset["scene_points_list"]
-    semantic_labels_list = dataset["semantic_labels_list"]
-    borders_list = dataset["borders_list"]
-    virtual_smpidx = dataset["virtual_smpidx"]
-    """
-    batch_data = np.zeros((bsize, NUM_POINT, 3))
-    batch_label = np.zeros((bsize, NUM_POINT), dtype=np.int32)
-    batch_border = np.zeros((bsize, NUM_POINT, 1), dtype=np.int32)
-    batch_smpw = np.zeros((bsize, NUM_POINT), dtype=np.float32)
-    """
-
-    def process(_idx):
+    with mp.Manager() as manager:
+        scene_points_list = manager.list(dataset["scene_points_list"])
+        semantic_labels_list = manager.list(dataset["semantic_labels_list"])
+        borders_list = manager.list(dataset["borders_list"])
         if not FLAGS.whole:
-            _idx = (_idx, random.randint(0, 7))
-        while True:
+            virtual_smpidx = manager.list(dataset["virtual_smpidx"])
+        else:
+            virtual_smpidx = manager.list()
+
+        is_training = True
+        args_const = [scene_points_list, semantic_labels_list, borders_list, virtual_smpidx, dataset, data_methods, is_training]
+        jobs = []
+        pipe_list = []
+
+        for i in range(bsize):
+            recv_end, send_end = mp.Pipe(False)
             if FLAGS.whole:
-                try:
-                    _scene_point = scene_points_list[_idx].copy()
-                    _semantic_label = semantic_labels_list[_idx].copy()
-                    _borders = borders_list[_idx].copy()
-                    _ps, _seg, _border, _smpw = data_methods.sample(_scene_point, _semantic_label, _borders)
-                    break
-                except Exception as e:
-                    print(e)
-                    _old_idx = _idx
-                    _idx = np.random.randint(len(dataset))
-                    print('Data-{} is invalid. Instead, use data-{}'.format(_old_idx, _idx))
+                p = mp.Process(target=process, args=[idxs[i+start_idx]] + args_const + [send_end])
             else:
-                try:
-                    _data_idx, _view_idx = _idx
-                    _scene_point = scene_points_list[_data_idx]
-                    _semantic_label = semantic_labels_list[_data_idx]
-                    _borders = borders_list[_data_idx]
-                    _smpidx = virtual_smpidx[_data_idx][_view_idx][0]
-                    _ps, _seg, _border, _smpw = data_methods.sample(_scene_point, _semantic_label, _borders, _smpidx, _view_idx)
+                p = mp.Process(target=process, args=[(idxs[i+start_idx], random.randint(0, 7))] + args_const + [send_end])
+            jobs.append(p)
+            pipe_list.append(recv_end)
+            p.start()
 
-                except Exception as e:
-                    print(e)
-                    _old_data_idx, _old_view_idx = _idx
-                    _data_idx = np.random.randint(len(dataset))
-                    _view_idx = np.random.randint(8)
-                    _idx = (_data_idx, _view_idx)
-                    print('Data-{} from view-{} is invalid. Instead, use data-{} from view-{}'.format(_old_data_idx, _old_view_idx, _data_idx, _view_idx))
+        for p in jobs:
+            p.join()
 
-        return _ps, _seg, _border, _smpw
-
-    results = joblib.Parallel(n_jobs=2)([joblib.delayed(process)(idxs[i+start_idx]) for i in range(bsize)])
+        results = [pipe.recv() for pipe in pipe_list]
         
     batch_data   = np.array([ps     for ps, _, _, _     in results])
     batch_label  = np.array([seg    for _, seg, _, _    in results])
