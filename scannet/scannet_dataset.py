@@ -144,19 +144,19 @@ class ScannetDatasetWholeScene():
             for j in range(nsubvolume_y):
                 curmin = coordmin+[i*1.5, j*1.5, 0]
                 curmax = coordmin+[(i+1)*1.5, (j+1)*1.5, coordmax[2]-coordmin[2]]
-                curchoice = np.sum((point_set_ini >= (curmin-0.2))*(point_set_ini <= (curmax+0.2)), axis=1) == 3
+                curchoice = np.sum((point_set_ini >= (curmin-0.2))*(point_set_ini<=(curmax+0.2)), axis=1)==3
                 cur_point_set = point_set_ini[curchoice, :]
                 cur_semantic_seg = semantic_seg_ini[curchoice]
                 cur_border = border_ini[curchoice]
-                if len(cur_semantic_seg) == 0:
+                if len(cur_semantic_seg)==0:
                     continue
-                mask = np.sum((cur_point_set >= (curmin-0.001))*(cur_point_set <= (curmax+0.001)), axis=1) == 3
+                mask = np.sum((cur_point_set >= (curmin-0.001))*(cur_point_set<=(curmax+0.001)), axis=1)==3
                 choice = np.random.choice(len(cur_semantic_seg),  self.npoints,  replace=True)
                 point_set = cur_point_set[choice, :]  # Nx3
                 semantic_seg = cur_semantic_seg[choice]  # N
                 border = cur_border[choice]  # N
                 mask = mask[choice]
-                if sum(mask)/float(len(mask)) < 0.01:
+                if sum(mask)/float(len(mask))<0.01:
                     continue
                 sample_weight = self.labelweights[semantic_seg]
                 sample_weight *= mask  # N
@@ -230,23 +230,23 @@ class ScannetDatasetVirtualScan():
         virtual_smpidx = list()
         for point_set in self.scene_points_list:
             smpidx = list()
-            for i in range(8):
-                var = scene_util.virtual_scan(point_set, mode=i)
-                smpidx.append(np.expand_dims(var, 0))  # 1xpoints
-            virtual_smpidx.append(smpidx)  # datax8xpoints
+            for i in xrange(8):
+                var = scene_util.virtual_scan(point_set,mode=i)
+                smpidx.append(np.expand_dims(var, 0)) # 1xpoints
+            virtual_smpidx.append(smpidx) # datax8xpoints
 
         assert len(virtual_smpidx) == len(self.scene_points_list)
         assert len(virtual_smpidx[0]) == 8
 
-        with open(self.smpidx_filename, 'wb') as fp:
+        with open(self.smpidx_filename,'wb') as fp:
             pickle.dump(virtual_smpidx, fp)
 
         return virtual_smpidx
 
     def __get_rotation_matrix(self, i):
         theta = (i-4)*np.pi/4.0    # Rotation about the pole (Z).
-        phi = 0  # phi * 2.0 * np.pi     # For direction of pole deflection.
-        z = 0  # z * 2.0 * deflection    # For magnitude of pole deflection.
+        phi = 0 #phi * 2.0 * np.pi     # For direction of pole deflection.
+        z = 0 # z * 2.0 * deflection    # For magnitude of pole deflection.
 
         r = np.sqrt(z)
         V = (
@@ -263,6 +263,7 @@ class ScannetDatasetVirtualScan():
         M = (np.outer(V, V) - np.eye(3)).dot(R)
         return M
 
+
     def sample(self, point_set_ini, semantic_seg_ini, border_ini, smpidx, view_ind):
         semantic_seg_ini = semantic_seg_ini.astype(np.int32)
         border_ini = border_ini.astype(np.int32)
@@ -271,21 +272,21 @@ class ScannetDatasetVirtualScan():
 
         assert len(smpidx) > (self.npoints/4.)
 
-        point_set = point_set_ini[smpidx, :]
+        point_set = point_set_ini[smpidx,:]
         semantic_seg = semantic_seg_ini[smpidx]
         border = border_ini[smpidx]
         sample_weight = sample_weight_ini[smpidx]
 
         choice = np.random.choice(len(semantic_seg), self.npoints, replace=True)
-        point_set = point_set[choice, :]  # Nx3
-        semantic_seg = semantic_seg[choice]  # N
-        border = border[choice]  # N
-        sample_weight = sample_weight[choice]  # N
+        point_set = point_set[choice,:] # Nx3
+        semantic_seg = semantic_seg[choice] # N
+        border = border[choice] # N
+        sample_weight = sample_weight[choice] # N
 
-        camloc = np.mean(xyz, axis=0)
+        camloc = np.mean(xyz,axis=0)
         camloc[2] = 1.5
         view_dr = np.array([np.pi/4.*view_ind, 0])
-        camloc[:2] -= np.array([np.cos(view_dr[0]), np.sin(view_dr[0])])
+        camloc[:2] -= np.array([np.cos(view_dr[0]),np.sin(view_dr[0])])
         point_set[:, :2] -= camloc[:2]
 
         r_rotation = self.__get_rotation_matrix(-view_ind+1)

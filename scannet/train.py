@@ -8,17 +8,16 @@ import os
 import sys
 import itertools
 import random
-import joblib
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(BASE_DIR)
 sys.path.append(os.path.join(ROOT_DIR, 'utils'))
 sys.path.append(os.path.join(ROOT_DIR, 'models'))
 
-import provider  # noqa
-import tf_util  # noqa
-import pc_util  # noqa
-import scannet_dataset  # noqa
+import provider
+import tf_util
+import pc_util
+import scannet_dataset
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--gpu', type=int, default=1, help='GPU to use [default: GPU 1]')
@@ -49,7 +48,7 @@ OPTIMIZER = FLAGS.optimizer
 DECAY_STEP = FLAGS.decay_step
 DECAY_RATE = FLAGS.decay_rate
 
-MODEL = importlib.import_module(FLAGS.model)  # import network module
+MODEL = importlib.import_module(FLAGS.model) # import network module
 MODEL_FILE = os.path.join(BASE_DIR, FLAGS.model+'.py')
 LOG_DIR = FLAGS.log_dir
 
@@ -67,7 +66,7 @@ BN_DECAY_CLIP = 0.99
 HOSTNAME = socket.gethostname()
 
 # Shapenet official train/test split
-DATA_PATH = os.path.join(ROOT_DIR, 'data', '{}_data_pointnet2'.format(FLAGS.dataset))
+DATA_PATH = os.path.join(ROOT_DIR,'data','{}_data_pointnet2'.format(FLAGS.dataset))
 
 if FLAGS.whole:
     print('Use whole scan data')
@@ -94,7 +93,7 @@ def get_learning_rate(batch):
                         DECAY_STEP,          # Decay step.
                         DECAY_RATE,          # Decay rate.
                         staircase=True)
-    learing_rate = tf.maximum(learning_rate, 0.00001)  # CLIP THE LEARNING RATE!
+    learing_rate = tf.maximum(learning_rate, 0.00001) # CLIP THE LEARNING RATE!
     return learning_rate
 
 
@@ -120,14 +119,14 @@ def train():
             pointclouds_pl, labels_pl, borders_pl, smpws_pl = MODEL.placeholder_inputs(BATCH_SIZE, NUM_POINT)
             is_training_pl = tf.placeholder(tf.bool, shape=())
 
-            # Note the global_step=batch parameter to minimize.
+            # Note the global_step=batch parameter to minimize. 
             # That tells the optimizer to helpfully increment the 'batch' parameter for you every time it trains.
             batch = tf.Variable(0)
             bn_decay = get_bn_decay(batch)
             tf.summary.scalar('bn_decay', bn_decay)
 
-            print("--- Get model and loss")
-            # Get model and loss
+            print "--- Get model and loss"
+            # Get model and loss 
             pred_class, pred_border, end_points = MODEL.get_model(pointclouds_pl, is_training_pl, FLAGS.num_classes, bn_decay=bn_decay)
             class_loss, border_loss = MODEL.get_loss(pred_class, pred_border, labels_pl, borders_pl, smpws_pl)
             total_loss = class_loss + border_loss
@@ -141,7 +140,7 @@ def train():
             accuracy_border = tf.reduce_sum(tf.cast(correct_border, tf.float32)) / float(BATCH_SIZE*NUM_POINT)
             tf.summary.scalar('accuracy border', accuracy_border)
 
-            print("--- Get training operator")
+            print "--- Get training operator"
             # Get training operator
             learning_rate = get_learning_rate(batch)
             tf.summary.scalar('learning_rate', learning_rate)
@@ -150,10 +149,10 @@ def train():
             elif OPTIMIZER == 'adam':
                 optimizer = tf.train.AdamOptimizer(learning_rate)
             train_op = optimizer.minimize(total_loss, global_step=batch)
-
+            
             # Add ops to save and restore all the variables.
             saver = tf.train.Saver()
-
+        
         # Create a session
         config = tf.ConfigProto()
         config.gpu_options.allow_growth = True
@@ -169,6 +168,7 @@ def train():
         # Init variables
         init = tf.global_variables_initializer()
         sess.run(init)
+        #sess.run(init, {is_training_pl: True})
 
         ops = {'pointclouds_pl': pointclouds_pl,
                'labels_pl': labels_pl,
@@ -212,58 +212,55 @@ def get_batch_wdp(dataset, data_methods, idxs, start_idx, end_idx):
     borders_list = dataset["borders_list"]
     virtual_smpidx = dataset["virtual_smpidx"]
 
-    bsize = end_idx - start_idx
+    bsize = end_idx-start_idx
     batch_data = np.zeros((bsize, NUM_POINT, 3))
     batch_label = np.zeros((bsize, NUM_POINT), dtype=np.int32)
     batch_border = np.zeros((bsize, NUM_POINT, 1), dtype=np.int32)
     batch_smpw = np.zeros((bsize, NUM_POINT), dtype=np.float32)
 
-    def process(_idx):
+    for i in range(bsize):
+        idx = idxs[i+start_idx]
         while True:
             if FLAGS.whole:
                 try:
-                    _scene_point = scene_points_list[_idx].copy()
-                    _semantic_label = semantic_labels_list[_idx].copy()
-                    _borders = borders_list[_idx].copy()
-                    _ps, _seg, _border, _smpw = data_methods.sample(_scene_point, _semantic_label, _borders)
+                    scene_point = scene_points_list[idx].copy()
+                    semantic_label = semantic_labels_list[idx].copy()
+                    borders = borders_list[idx].copy()
+                    ps, seg, border, smpw = data_methods.sample(scene_point, semantic_label, borders)
                     break
                 except Exception as e:
                     print(e)
-                    _old_idx = _idx
-                    _idx = np.random.randint(len(dataset))
-                    print('Data-{} is invalid. Instead, use data-{}'.format(_old_idx, _idx))
+                    old_idx = idx
+                    idx = np.random.randint(len(dataset))
+                    print('Data-{} is invalid. Instead, use data-{}'.format(old_idx, idx))
             else:
                 try:
-                    _data_idx, _view_idx = _idx
-                    _scene_point = scene_points_list[_data_idx]
-                    _semantic_label = semantic_labels_list[_data_idx]
-                    _borders = borders_list[_data_idx]
-                    _smpidx = virtual_smpidx[_data_idx][_view_idx][0]
-                    _ps, _seg, _border, _smpw = data_methods.sample(_scene_point, _semantic_label, _borders, _smpidx, _view_idx)
+                    data_idx, view_idx = idx
+                    scene_point = scene_points_list[data_idx]
+                    semantic_label = semantic_labels_list[data_idx]
+                    borders = borders_list[data_idx]
+                    smpidx = virtual_smpidx[data_idx][view_idx][0]
+                    ps, seg, border, smpw = data_methods.sample(scene_point, semantic_label, borders, smpidx, view_idx)
 
                 except Exception as e:
                     print(e)
-                    _old_data_idx, _old_view_idx = _idx
-                    _data_idx = np.random.randint(len(dataset))
-                    _view_idx = np.random.randint(8)
-                    _idx = (_data_idx, _view_idx)
-                    print('Data-{} from view-{} is invalid. Instead, use data-{} from view-{}'.format(_old_data_idx, _old_view_idx, _data_idx, _view_idx))
+                    old_data_idx, old_view_idx = idx
+                    data_idx = np.random.randint(len(dataset))
+                    view_idx = np.random.randint(8)
+                    idx = (data_idx, view_idx)
+                    print('Data-{} from view-{} is invalid. Instead, use data-{} from view-{}'.format(old_data_idx, old_view_idx, data_idx, view_idx))
 
-        _dropout_ratio = np.random.random()*0.875  # 0-0.875
-        _drop_idx = np.where(np.random.random((_ps.shape[0])) <= _dropout_ratio)[0]
-        _ps[_drop_idx, :] = _ps[0, :]
-        _seg[_drop_idx] = _seg[0]
-        _border[_drop_idx] = _border[0]
-        _smpw[_drop_idx] *= 0
+        batch_data[i, ...] = ps
+        batch_label[i, :] = seg
+        batch_border[i, ...] = border
+        batch_smpw[i, :] = smpw
 
-        return _ps, _seg, _border, _smpw
-
-    results = joblib.Parallel(n_jobs=bsize)([joblib.delayed(process)(idxs[i+start_idx]) for i in range(bsize)])
-    batch_data   = np.array([ps     for ps, _, _, _     in results])
-    batch_label  = np.array([seg    for _, seg, _, _    in results])
-    batch_border = np.array([border for _, _, border, _ in results])
-    batch_smpw   = np.array([smpw   for _, _, _, smpw   in results])
-
+        dropout_ratio = np.random.random()*0.875  # 0-0.875
+        drop_idx = np.where(np.random.random((ps.shape[0])) <= dropout_ratio)[0]
+        batch_data[i, drop_idx, :] = batch_data[i, 0, :]
+        batch_label[i, drop_idx] = batch_label[i, 0]
+        batch_border[i, drop_idx] = batch_border[i, 0]
+        batch_smpw[i, drop_idx] *= 0
     return batch_data, batch_label, batch_border, batch_smpw
 
 
@@ -279,47 +276,44 @@ def get_batch(dataset, data_methods, idxs, start_idx, end_idx):
     batch_border = np.zeros((bsize, NUM_POINT, 1), dtype=np.int32)
     batch_smpw = np.zeros((bsize, NUM_POINT), dtype=np.float32)
 
-    def process(_idx):
+    for i in range(bsize):
+        idx = idxs[i+start_idx]
         if not FLAGS.whole:
-            _idx = (_idx, random.randint(0, 7))
+            idx = (idx, random.randint(0, 7))
         while True:
             if FLAGS.whole:
                 try:
-                    _scene_point = scene_points_list[_idx].copy()
-                    _semantic_label = semantic_labels_list[_idx].copy()
-                    _borders = borders_list[_idx].copy()
-                    _ps, _seg, _border, _smpw = data_methods.sample(_scene_point, _semantic_label, _borders)
+                    scene_point = scene_points_list[idx].copy()
+                    semantic_label = semantic_labels_list[idx].copy()
+                    borders = borders_list[idx].copy()
+                    ps, seg, border, smpw = data_methods.sample(scene_point, semantic_label, borders)
                     break
                 except Exception as e:
                     print(e)
-                    _old_idx = _idx
-                    _idx = np.random.randint(len(dataset))
-                    print('Data-{} is invalid. Instead, use data-{}'.format(_old_idx, _idx))
+                    old_idx = idx
+                    idx = np.random.randint(len(dataset))
+                    print('Data-{} is invalid. Instead, use data-{}'.format(old_idx, idx))
             else:
                 try:
-                    _data_idx, _view_idx = _idx
-                    _scene_point = scene_points_list[_data_idx]
-                    _semantic_label = semantic_labels_list[_data_idx]
-                    _borders = borders_list[_data_idx]
-                    _smpidx = virtual_smpidx[_data_idx][_view_idx][0]
-                    _ps, _seg, _border, _smpw = data_methods.sample(_scene_point, _semantic_label, _borders, _smpidx, _view_idx)
+                    data_idx, view_idx = idx
+                    scene_point = scene_points_list[data_idx].copy()
+                    semantic_label = semantic_labels_list[data_idx].copy()
+                    borders = borders_list[data_idx].copy()
+                    smpidx = virtual_smpidx[data_idx][view_idx][0].copy()
+                    ps, seg, border, smpw = data_utils.sample(scene_point, semantic_label, borders, smpidx, view_idx)
 
                 except Exception as e:
                     print(e)
-                    _old_data_idx, _old_view_idx = _idx
-                    _data_idx = np.random.randint(len(dataset))
-                    _view_idx = np.random.randint(8)
-                    _idx = (_data_idx, _view_idx)
-                    print('Data-{} from view-{} is invalid. Instead, use data-{} from view-{}'.format(_old_data_idx, _old_view_idx, _data_idx, _view_idx))
+                    old_data_idx, old_view_idx = idx
+                    data_idx = np.random.randint(len(dataset))
+                    view_idx = np.random.randint(8)
+                    idx = (data_idx, view_idx)
+                    print('Data-{} from view-{} is invalid. Instead, use data-{} from view-{}'.format(old_data_idx, old_view_idx, data_idx, view_idx))
 
-        return _ps, _seg, _border, _smpw
-
-    results = joblib.Parallel(n_jobs=bsize)([joblib.delayed(process)(idxs[i+start_idx]) for i in range(bsize)])
-    batch_data   = np.array([ps     for ps, _, _, _     in results])
-    batch_label  = np.array([seg    for _, seg, _, _    in results])
-    batch_border = np.array([border for _, _, border, _ in results])
-    batch_smpw   = np.array([smpw   for _, _, _, smpw   in results])
-
+        batch_data[i, ...] = ps
+        batch_label[i, :] = seg
+        batch_border[i, ...] = border
+        batch_smpw[i, :] = smpw
     return batch_data, batch_label, batch_border, batch_smpw
 
 
@@ -333,19 +327,6 @@ def get_whole(dataset, data_methods, idx):
     semantic_label = semantic_labels_list[idx].copy()
     borders = borders_list[idx].copy()
     ps, seg, border, smpw = data_methods.sample(scene_point, semantic_label, borders)
-
-    if FLAGS.whole:
-        scene_point = scene_points_list[idx].copy()
-        semantic_label = semantic_labels_list[idx].copy()
-        borders = borders_list[idx].copy()
-        ps, seg, border, smpw = data_methods.sample(scene_point, semantic_label, borders)
-    else:
-        data_idx, view_idx = idx
-        scene_point = scene_points_list[data_idx].copy()
-        semantic_label = semantic_labels_list[data_idx].copy()
-        borders = borders_list[data_idx].copy()
-        smpidx = virtual_smpidx[data_idx][view_idx][0].copy()
-        ps, seg, border, smpw = data_methods.sample(scene_point, semantic_label, borders, smpidx, view_idx)
 
     return ps, seg, border, smpw
 
@@ -395,7 +376,7 @@ def train_one_epoch(sess, ops, train_writer, dataset):
         total_seen += (BATCH_SIZE*NUM_POINT)
         loss_sum_class += loss_val_class
         loss_sum_border += loss_val_border
-        if (batch_idx+1) % 10 == 0:
+        if (batch_idx+1)%10 == 0:
             log_string(' -- %03d / %03d --' % (batch_idx+1, num_batches))
             log_string('mean loss (class): %f' % (loss_sum_class / 10))
             log_string('mean loss (border): %f' % (loss_sum_border / 10))
@@ -469,7 +450,7 @@ def eval_one_epoch(sess, ops, test_writer, dataset):
             total_seen_class[l] += np.sum((batch_label == l) & (batch_smpw > 0))
             total_correct_class[l] += np.sum((pred_val_class == l) & (batch_label == l) & (batch_smpw > 0))
 
-        for b in range(batch_label.shape[0]):
+        for b in xrange(batch_label.shape[0]):
             _, uvlabel, _ = pc_util.point_cloud_label_to_surface_voxel_label_fast(  # Point to voxel index (a point for each voxel)
                 aug_data[b, batch_smpw[b, :] > 0, :],
                 np.concatenate(
@@ -483,22 +464,22 @@ def eval_one_epoch(sess, ops, test_writer, dataset):
             tmp, _ = np.histogram(uvlabel[:, 0], range(FLAGS.num_classes+1))
             labelweights_vox += tmp
             for l in range(FLAGS.num_classes):
-                total_seen_class_vox[l] += np.sum(uvlabel[:, 0] == l)
-                total_correct_class_vox[l] += np.sum((uvlabel[:, 0] == l) & (uvlabel[:, 1] == l))
+                total_seen_class_vox[l] += np.sum(uvlabel[:,0]==l)
+                total_correct_class_vox[l] += np.sum((uvlabel[:,0]==l) & (uvlabel[:,1]==l))
 
     log_string('eval mean loss (class): %f' % (loss_sum_class / float(num_batches)))
     log_string('eval mean loss (border): %f' % (loss_sum_border / float(num_batches)))
-    log_string('eval point accuracy vox: %f' % (total_correct_vox / float(total_seen_vox)))
+    log_string('eval point accuracy vox: %f'% (total_correct_vox / float(total_seen_vox)))
     log_string('eval point avg class acc vox: %f' % (np.mean(np.array(total_correct_class_vox)/(np.array(total_seen_class_vox, dtype=np.float)+1e-6))))
-    log_string('eval point accuracy (class): %f' % (float(total_correct_cls) / float(total_seen)))
-    log_string('eval point accuracy (border): %f' % (float(total_correct_border) / float(total_seen)))
-    log_string('eval point avg class acc: %f' % (np.mean(np.array(total_correct_class)/(np.array(total_seen_class, dtype=np.float)+1e-6))))
+    log_string('eval point accuracy (class): %f'% (float(total_correct_cls) / float(total_seen)))
+    log_string('eval point accuracy (border): %f'% (float(total_correct_border) / float(total_seen)))
+    log_string('eval point avg class acc: %f' % (np.mean(np.array(total_correct_class)/(np.array(total_seen_class,dtype=np.float)+1e-6))))
     labelweights_vox = labelweights_vox.astype(np.float32)/np.sum(labelweights_vox.astype(np.float32))
     caliweights = np.ones(FLAGS.num_classes)  # np.array([0.388,0.357,0.038,0.033,0.017,0.02,0.016,0.025,0.002,0.002,0.002,0.007,0.006,0.022,0.004,0.0004,0.003,0.002,0.024,0.029])
     log_string('eval point calibrated average acc: %f' % (np.average(np.array(total_correct_class)/(np.array(total_seen_class,dtype=np.float)+1e-6),weights=caliweights)))
     per_class_str = 'vox based --------'
     for l in range(FLAGS.num_classes):
-        per_class_str += 'class %d weight: %f, acc: %f; ' % (l, labelweights_vox[l], total_correct_class[l]/float(total_seen_class[l]))
+        per_class_str += 'class %d weight: %f, acc: %f; ' % (l,labelweights_vox[l],total_correct_class[l]/float(total_seen_class[l]))
     log_string(per_class_str)
     EPOCH_CNT += 1
     return total_correct_cls/float(total_seen)
@@ -509,6 +490,7 @@ def eval_whole_scene_one_epoch(sess, ops, test_writer, dataset):
     """ ops: dict mapping from string to tf ops """
     global EPOCH_CNT
     is_training = False
+    test_idxs = np.arange(0, len(TEST_DATASET_WHOLE_SCENE))
     num_batches = len(TEST_DATASET_WHOLE_SCENE)
 
     total_correct_cls = 0
@@ -598,7 +580,7 @@ def eval_whole_scene_one_epoch(sess, ops, test_writer, dataset):
             total_seen_class[l] += np.sum((batch_label == l) & (batch_smpw > 0))
             total_correct_class[l] += np.sum((pred_val_class == l) & (batch_label == l) & (batch_smpw > 0))
 
-        for b in range(batch_label.shape[0]):
+        for b in xrange(batch_label.shape[0]):
             _, uvlabel, _ = pc_util.point_cloud_label_to_surface_voxel_label_fast(
                 aug_data[b, batch_smpw[b, :] > 0, :],
                 np.concatenate(
@@ -616,26 +598,26 @@ def eval_whole_scene_one_epoch(sess, ops, test_writer, dataset):
 
     log_string('eval whole scene mean loss (class): %f' % (loss_sum_class / float(num_batches)))
     log_string('eval whole scene mean loss (border): %f' % (loss_sum_border / float(num_batches)))
-    log_string('eval whole scene point accuracy vox: %f' % (total_correct_vox / float(total_seen_vox)))
-    log_string('eval whole scene point avg class acc vox: %f' % (np.mean(np.array(total_correct_class_vox)/(np.array(total_seen_class_vox, dtype=np.float)+1e-6))))
-    log_string('eval whole scene point accuracy (class): %f' % (total_correct_cls / float(total_seen)))
-    log_string('eval whole scene point accuracy (border): %f' % (total_correct_border / float(total_seen)))
-    log_string('eval whole scene point avg class acc: %f' % (np.mean(np.array(total_correct_class)/(np.array(total_seen_class, dtype=np.float)+1e-6))))
+    log_string('eval whole scene point accuracy vox: %f'% (total_correct_vox / float(total_seen_vox)))
+    log_string('eval whole scene point avg class acc vox: %f' % (np.mean(np.array(total_correct_class_vox)/(np.array(total_seen_class_vox,dtype=np.float)+1e-6))))
+    log_string('eval whole scene point accuracy (class): %f'% (total_correct_cls / float(total_seen)))
+    log_string('eval whole scene point accuracy (border): %f'% (total_correct_border / float(total_seen)))
+    log_string('eval whole scene point avg class acc: %f' % (np.mean(np.array(total_correct_class)/(np.array(total_seen_class,dtype=np.float)+1e-6))))
     labelweights = labelweights.astype(np.float32)/np.sum(labelweights.astype(np.float32))
     labelweights_vox = labelweights_vox.astype(np.float32)/np.sum(labelweights_vox.astype(np.float32))
     caliweights = np.ones(FLAGS.num_classes)  # np.array([0.388,0.357,0.038,0.033,0.017,0.02,0.016,0.025,0.002,0.002,0.002,0.007,0.006,0.022,0.004,0.0004,0.003,0.002,0.024,0.029])
-    caliacc = np.average(np.array(total_correct_class_vox)/(np.array(total_seen_class_vox, dtype=np.float)+1e-6), weights=caliweights)
+    caliacc = np.average(np.array(total_correct_class_vox)/(np.array(total_seen_class_vox, dtype=np.float)+1e-6),weights=caliweights)
     log_string('eval whole scene point calibrated average acc vox: %f' % caliacc)
 
     per_class_str = 'vox based --------'
     for l in range(FLAGS.num_classes):
-        per_class_str += 'class %d weight: %f, acc: %f; ' % (l, labelweights_vox[l], total_correct_class_vox[l]/float(total_seen_class_vox[l]))
+        per_class_str += 'class %d weight: %f, acc: %f; ' % (l,labelweights_vox[l],total_correct_class_vox[l]/float(total_seen_class_vox[l]))
     log_string(per_class_str)
     EPOCH_CNT += 1
     return caliacc
 
 
 if __name__ == "__main__":
-    log_string('pid: %s' % (str(os.getpid())))
+    log_string('pid: %s'%(str(os.getpid())))
     train()
     LOG_FOUT.close()
