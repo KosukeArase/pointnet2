@@ -5,12 +5,13 @@ import scene_util
 
 
 class ScannetDataset():
-    def __init__(self, root, npoints=8192, split='train', dataset='s3dis', num_classes=13):
+    def __init__(self, root, npoints=8192, split='train', dataset='s3dis', num_classes=13, color=False):
         self.npoints = npoints
         self.root = root
         self.split = split
         self.num_classes = num_classes
-        self.data_filename = os.path.join(self.root, '{}_{}.pickle'.format(dataset, split))
+        self.color = color
+        self.data_filename = os.path.join(self.root, '{}_instance_color.pkl'.format(split))
         self.border_filename = os.path.join(self.root, '{}_border.pkl'.format(split))
         self.data_length = 0
 
@@ -18,6 +19,11 @@ class ScannetDataset():
         with open(self.data_filename, 'rb') as fp:
             scene_points_list = pickle.load(fp)
             semantic_labels_list = pickle.load(fp)
+            instance_ids_list = pickle.load(fp)
+            if self.color:
+                scene_colors_list = pickle.load(fp)
+            else:
+                scene_colors_list = None
         with open(self.border_filename, 'rb') as fp:
             sparse_borders_list = pickle.load(fp)
             borders_list = []
@@ -43,6 +49,8 @@ class ScannetDataset():
             "scene_points_list": scene_points_list,
             "semantic_labels_list": semantic_labels_list,
             "borders_list": borders_list,
+            "instance_ids_list": instance_ids_list,
+            "scene_colors_list": scene_colors_list,
             "virtual_smpidx": None,
             }
 
@@ -88,12 +96,13 @@ class ScannetDataset():
 
 
 class ScannetDatasetWholeScene():
-    def __init__(self, root, npoints=8192, split='train', dataset='s3dis', num_classes=13):
+    def __init__(self, root, npoints=8192, split='train', dataset='s3dis', num_classes=13, color=False):
         self.npoints = npoints
         self.root = root
         self.split = split
         self.num_classes = num_classes
-        self.data_filename = os.path.join(self.root, '{}_{}.pickle'.format(dataset, split))
+        self.color = color
+        self.data_filename = os.path.join(self.root, '{}_instance_color.pkl'.format(split))
         self.border_filename = os.path.join(self.root, '{}_border.pkl'.format(split))
         self.data_length = 0
 
@@ -101,6 +110,11 @@ class ScannetDatasetWholeScene():
         with open(self.data_filename, 'rb') as fp:
             scene_points_list = pickle.load(fp)
             semantic_labels_list = pickle.load(fp)
+            instance_ids_list = pickle.load(fp)
+            if self.color:
+                scene_colors_list = pickle.load(fp)
+            else:
+                scene_colors_list = None
         with open(self.border_filename, 'rb') as fp:
             sparse_borders_list = pickle.load(fp)
             borders_list = []
@@ -126,11 +140,14 @@ class ScannetDatasetWholeScene():
             "scene_points_list": scene_points_list,
             "semantic_labels_list": semantic_labels_list,
             "borders_list": borders_list,
+            "instance_ids_list": instance_ids_list,
+            "scene_colors_list": scene_colors_list,
             "virtual_smpidx": None,
             }
 
-    def sample(self, point_set_ini, semantic_seg_ini, border_ini):
+    def sample(self, point_set_ini, semantic_seg_ini, border_ini, instance_id_ini):
         semantic_seg_ini = semantic_seg_ini.astype(np.int32)
+        instance_id_ini = instance_id_ini.astype(np.int32)
         border_ini = border_ini.astype(np.int32)
         coordmax = np.max(point_set_ini, axis=0)
         coordmin = np.min(point_set_ini, axis=0)
@@ -138,6 +155,7 @@ class ScannetDatasetWholeScene():
         nsubvolume_y = np.ceil((coordmax[1]-coordmin[1])/1.5).astype(np.int32)
         point_sets = list()
         semantic_segs = list()
+        instance_ids = list()
         borders = list()
         sample_weights = list()
         for i in range(nsubvolume_x):
@@ -147,6 +165,7 @@ class ScannetDatasetWholeScene():
                 curchoice = np.sum((point_set_ini >= (curmin-0.2))*(point_set_ini<=(curmax+0.2)), axis=1)==3
                 cur_point_set = point_set_ini[curchoice, :]
                 cur_semantic_seg = semantic_seg_ini[curchoice]
+                cur_instance_id = instance_id_ini[curchoice]
                 cur_border = border_ini[curchoice]
                 if len(cur_semantic_seg)==0:
                     continue
@@ -154,6 +173,7 @@ class ScannetDatasetWholeScene():
                 choice = np.random.choice(len(cur_semantic_seg),  self.npoints,  replace=True)
                 point_set = cur_point_set[choice, :]  # Nx3
                 semantic_seg = cur_semantic_seg[choice]  # N
+                instance_id = cur_instance_id[choice]  # N
                 border = cur_border[choice]  # N
                 mask = mask[choice]
                 if sum(mask)/float(len(mask))<0.01:
@@ -162,25 +182,28 @@ class ScannetDatasetWholeScene():
                 sample_weight *= mask  # N
                 point_sets.append(np.expand_dims(point_set, 0))  # 1xNx3
                 semantic_segs.append(np.expand_dims(semantic_seg, 0))  # 1xN
+                instance_ids.append(np.expand_dims(instance_id, 0))  # 1xN
                 borders.append(np.expand_dims(border, 0))  # 1xN
                 sample_weights.append(np.expand_dims(sample_weight, 0))  # 1xN
         point_sets = np.concatenate(tuple(point_sets), axis=0)
         semantic_segs = np.concatenate(tuple(semantic_segs), axis=0)
+        instance_ids = np.concatenate(tuple(instance_ids), axis=0)
         borders = np.concatenate(tuple(borders), axis=0)
         sample_weights = np.concatenate(tuple(sample_weights), axis=0)
-        return point_sets, semantic_segs, borders, sample_weights
+        return point_sets, semantic_segs, borders, sample_weights, nsubvolume_x, nsubvolume_y, instance_ids
 
     def __len__(self):
         return self.data_length
 
 
 class ScannetDatasetVirtualScan():
-    def __init__(self, root, npoints=8192, split='train', dataset='s3dis', num_classes=13):
+    def __init__(self, root, npoints=8192, split='train', dataset='s3dis', num_classes=13, color=False):
         self.npoints = npoints
         self.root = root
         self.split = split
         self.num_classes = num_classes
-        self.data_filename = os.path.join(self.root, '{}_{}.pickle'.format(dataset, split))
+        self.color = color
+        self.data_filename = os.path.join(self.root, '{}_instance_color.pkl'.format(dataset, split))
         self.border_filename = os.path.join(self.root, '{}_border.pkl'.format(split))
         self.smpidx_filename = os.path.join(self.root, '{}_{}_smpidx.pickle'.format(dataset, split))
         self.data_length = 0
@@ -189,6 +212,11 @@ class ScannetDatasetVirtualScan():
         with open(self.data_filename, 'rb') as fp:
             scene_points_list = pickle.load(fp)
             semantic_labels_list = pickle.load(fp)
+            instance_ids_list = pickle.load(fp)
+            if self.color:
+                scene_colors_list = pickle.load(fp)
+            else:
+                scene_colors_list = None
         with open(self.border_filename, 'rb') as fp:
             sparse_borders_list = pickle.load(fp)
             borders_list = []
@@ -218,11 +246,12 @@ class ScannetDatasetVirtualScan():
             print('Start creating indexes for virtual scan.')
             virtual_smpidx = self.__create_smpidx()
             print('End creating indexes for virtual scan.')
-
         return {
             "scene_points_list": scene_points_list,
             "semantic_labels_list": semantic_labels_list,
             "borders_list": borders_list,
+            "instance_ids_list": instance_ids_list,
+            "scene_colors_list": scene_colors_list,
             "virtual_smpidx": virtual_smpidx,
             }
 

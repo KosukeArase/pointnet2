@@ -19,6 +19,7 @@ def create_pkl(output_file, data_type):
     dirs = glob.glob(dir_template)
     pcs = []
     sems = []
+    instances = []
     colors = []
 
     for i, d in enumerate(dirs): # for scene
@@ -28,15 +29,20 @@ def create_pkl(output_file, data_type):
         file_template = os.path.join(d, 'Annotations', '{}_*.txt')
         lines = []
         classes = []
+        instance_ids = []
+        offset = 0
 
         for ind, class_name in enumerate(class_names):
             files = glob.glob(file_template.format(class_name))
             lines += list(chain.from_iterable([open(file, 'r').readlines() for file in files])) # '1.1 2.2 3.3 123 234 222'
+            instance_ids += list(chain.from_iterable([[instance_id + offset] * len(open(file, 'r').readlines()) for instance_id, file in enumerate(files)]))
             classes += [ind] * (len(lines) - len(classes))
+            offset += len(files)
 
         pc = np.array([map(float, line.split()[:3]) for line in lines], dtype=np.float16)
         color = np.array([map(float, line.split()[3:]) for line in lines], dtype=np.int16)
-        sem = np.array(classes, dtype=np.int8)
+        sem = np.array(classes, dtype=np.uint8)
+        instance = np.array(instance_ids, dtype=np.uint8)
 
         assert len(pc[1]) == 3
         assert len(pc) == len(sem)
@@ -44,19 +50,24 @@ def create_pkl(output_file, data_type):
         assert max(sem) == 12
         assert len(color[1]) == 3
         assert len(color) == len(sem)
+        assert len(pc) == len(instance)
+        assert np.max(instance) == instance[-1]
 
 
         pcs.append(pc)
         sems.append(sem)
         colors.append(color)
+        instances.append(instance)
 
     assert len(pcs) == len(dirs)
     assert len(sems) == len(dirs)
     assert len(colors) == len(dirs)
+    assert len(instances) == len(dirs)
 
     with open(output_file.format(data_type), 'wb') as f:
         pickle.dump(pcs, f)
         pickle.dump(sems, f)
+        pickle.dump(instances, f)
         pickle.dump(colors, f)
 
     with open('filelist.pkl', 'wb') as f:
@@ -65,7 +76,7 @@ def create_pkl(output_file, data_type):
 
 def main():
     data_type = sys.argv[1]
-    output_file = '{}_color.pkl'
+    output_file = '../data/s3dis_data_pointnet2/{}_instance_color.pkl'
 
     create_pkl(output_file, data_type=data_type)
 

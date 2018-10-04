@@ -321,14 +321,16 @@ def get_whole(dataset, data_methods, idx):
     scene_points_list = dataset["scene_points_list"]
     semantic_labels_list = dataset["semantic_labels_list"]
     borders_list = dataset["borders_list"]
-    virtual_smpidx = dataset["virtual_smpidx"]
+    instance_ids_list = dataset["instance_ids_list"]
+    # virtual_smpidx = dataset["virtual_smpidx"]
 
     scene_point = scene_points_list[idx].copy()
     semantic_label = semantic_labels_list[idx].copy()
+    instance_id = instance_ids_list[idx].copy()
     borders = borders_list[idx].copy()
-    ps, seg, border, smpw = data_methods.sample(scene_point, semantic_label, borders)
+    ps, seg, border, smpw, nx, ny, instance_id = data_methods.sample(scene_point, semantic_label, borders, instance_id)
 
-    return ps, seg, border, smpw
+    return ps, seg, border, smpw, nx, ny, instance_id
 
 
 def train_one_epoch(sess, ops, train_writer, dataset):
@@ -521,14 +523,14 @@ def eval_whole_scene_one_epoch(sess, ops, test_writer, dataset):
     for batch_idx in range(num_batches):
         if not is_continue_batch:
             # batch_data, batch_label, batch_border, batch_smpw = TEST_DATASET_WHOLE_SCENE[batch_idx]
-            batch_data, batch_label, batch_border, batch_smpw = get_whole(dataset, TEST_DATASET_WHOLE_SCENE, batch_idx)
+            batch_data, batch_label, batch_border, batch_smpw, _, _, _= get_whole(dataset, TEST_DATASET_WHOLE_SCENE, batch_idx)
             batch_data = np.concatenate((batch_data, extra_batch_data), axis=0)
             batch_label = np.concatenate((batch_label, extra_batch_label), axis=0)
             batch_border = np.concatenate((batch_border, extra_batch_border), axis=0)
             batch_smpw = np.concatenate((batch_smpw, extra_batch_smpw), axis=0)
         else:
             # batch_data_tmp, batch_label_tmp, batch_border_tmp, batch_smpw_tmp = TEST_DATASET_WHOLE_SCENE[batch_idx]
-            batch_data_tmp, batch_label_tmp, batch_border_tmp, batch_smpw_tmp = get_whole(dataset, TEST_DATASET_WHOLE_SCENE, batch_idx)
+            batch_data_tmp, batch_label_tmp, batch_border_tmp, batch_smpw_tmp, _, _, _ = get_whole(dataset, TEST_DATASET_WHOLE_SCENE, batch_idx)
             batch_data = np.concatenate((batch_data, batch_data_tmp), axis=0)
             batch_label = np.concatenate((batch_label, batch_label_tmp), axis=0)
             batch_border = np.concatenate((batch_border, batch_border_tmp), axis=0)
